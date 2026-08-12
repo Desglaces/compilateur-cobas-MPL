@@ -7,12 +7,12 @@ import math
 
 try:
     import pytesseract
-    from PIL import Image
+    from PIL import Image, ImageEnhance, ImageOps
     OCR_AVAILABLE = True
 except ImportError:
     OCR_AVAILABLE = False
 
-VERSION = "v5.15"
+VERSION = "v5.16"
 
 # =========================================================================
 # BASE DE DONNÉES INTERNE DES CODES ACN
@@ -130,7 +130,7 @@ st.markdown(css, unsafe_allow_html=True)
 st.title(f"🧪 Compilateur de Résultats Cobas & MPL vers Excel (Version {VERSION})")
 
 if not OCR_AVAILABLE:
-    st.warning("⚠️ Module `pytesseract` non détecté. Vous pourrez traiter les PDF, mais l'extraction depuis des images ne fonctionnera pas.")
+    st.warning("⚠️ Module `pytesseract` ou `Pillow` non détecté. Vous pourrez traiter les PDF, mais l'extraction depuis des images ne fonctionnera pas.")
 
 if "etape" not in st.session_state:
     st.session_state.etape = 1
@@ -249,11 +249,30 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                                 "Nom de l'analyse": test_name_final, "Numéro de tube": tube_id, "Résulat MPL": parts[1], "Unité MPL": parts[2] if len(parts) > 2 else ""
                             })
                             
-        # ================= LECTURE IMAGE =================
+        # ================= LECTURE IMAGE AVEC PRE-TRAITEMENT =================
         elif file_ext in ['png', 'jpg', 'jpeg'] and OCR_AVAILABLE:
             try:
-                text = pytesseract.image_to_string(Image.open(uploaded_file), config='--psm 6')
-            except: continue
+                img = Image.open(uploaded_file)
+                
+                # --- PRÉ-TRAITEMENT POUR AMÉLIORER L'OCR ---
+                # 1. Agrandissement x2 (aide énormément Tesseract sur les petites polices)
+                w, h = img.size
+                img = img.resize((w * 2, h * 2), getattr(Image, 'LANCZOS', getattr(Image, 'ANTIALIAS', 1)))
+                
+                # 2. Passage en nuances de gris (supprime les interférences de couleur)
+                img = img.convert('L')
+                
+                # 3. Augmentation du contraste 
+                enhancer = ImageEnhance.Contrast(img)
+                img = enhancer.enhance(2.0)
+                
+                # 4. Binarisation (force le fond à être bien blanc et le texte bien noir)
+                img = img.point(lambda p: 255 if p > 150 else 0)
+                # ---------------------------------------------
+                
+                text = pytesseract.image_to_string(img, config='--psm 6')
+            except Exception as e:
+                continue
             
             lines = [l.strip() for l in text.split('\n') if l.strip()]
             tube_id = "UNKNOWN"
@@ -329,7 +348,7 @@ with col_b:
 
 if uploaded_files and uploaded_csv:
     if st.button("📥 Extraire les données des fichiers"):
-        with st.spinner("Lecture et analyse ciblée en cours..."):
+        with st.spinner("Lecture et nettoyage d'image en cours..."):
             csv_mpl_bytes = uploaded_csv_mpl.getvalue() if uploaded_csv_mpl else None
             df_cobas, df_mpl = process_files(uploaded_files, uploaded_csv.getvalue(), csv_mpl_bytes)
             st.session_state.df_cobas = df_cobas
@@ -381,7 +400,6 @@ if st.session_state.etape >= 2:
                 df_c, df_m = df_cobas.copy(), df_mpl.copy()
                 used_mpl_indices = set()
                 
-                # Ajout de la colonne Nom MPL
                 df_c["Nom MPL"] = ""
                 df_c["Résulat MPL"], df_c["Unité MPL"] = "", ""
                 
@@ -424,13 +442,11 @@ if st.session_state.etape >= 2:
                 unused_mpl = df_m.drop(index=list(used_mpl_indices)).copy()
                 unused_mpl["Numéro de tube"] = unused_mpl["Numéro de tube"].apply(lambda t: get_12_digit(t, df_cobas))
                 
-                # On place le nom d'analyse MPL dans la nouvelle colonne Nom MPL
                 unused_mpl["Nom MPL"] = unused_mpl["Nom de l'analyse"]
                 unused_mpl["Nom de l'analyse"] = ""
                 
                 df_combined = pd.concat([df_c, unused_mpl], ignore_index=True)
                 
-                # Mise à jour des colonnes finales pour intégrer "Nom MPL" en position B
                 colonnes_finales = ["Nom de l'analyse", "Nom MPL", "Numéro de tube", "Module CPRO", "Résultat CPRO", "Unité CPRO", "Facteur de conversion COBASPRO", "Résulat MPL", "Unité MPL", "Facteur de conversion MPL", "Résultat Kalisil", "Unité Kalisil", "Code ACN", "Id de l'analyse", "Sous-champ résultat", "Résultat QC", "NEGATIF/POSITIF/DOUTEUX", "Repassage"]
                 df_final = pd.DataFrame(columns=colonnes_finales)
                 for col in df_combined.columns:
@@ -438,7 +454,6 @@ if st.session_state.etape >= 2:
 
                 df_driver[col_acn_driver] = df_driver[col_acn_driver].astype(str).str.strip()
                 for idx, row in df_final.iterrows():
-                    # Recherche de l'ACN via le nom Cobas en priorité, sinon via le nom MPL
                     nom_cobas = str(row.get("Nom de l'analyse", "")).replace(" (Interprétation)", "").strip()
                     nom_mpl = str(row.get("Nom MPL", "")).strip()
                     nom_recherche = nom_cobas if nom_cobas else nom_mpl
