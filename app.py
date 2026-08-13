@@ -12,7 +12,7 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
-VERSION = "v5.18"
+VERSION = "v5.19"
 
 # =========================================================================
 # BASE DE DONNÉES INTERNE DES CODES ACN
@@ -90,6 +90,7 @@ def read_csv_safe(file_bytes):
 def are_values_equivalent(v1, v2):
     s1, s2 = str(v1).strip().lower(), str(v2).strip().lower()
     if s1 == s2: return True
+    if s1.replace(' ', '') == s2.replace(' ', ''): return True
     try:
         c1 = re.sub(r'[^\d\.\,\-]', '', s1).replace(',', '.')
         c2 = re.sub(r'[^\d\.\,\-]', '', s2).replace(',', '.')
@@ -130,7 +131,7 @@ st.markdown(css, unsafe_allow_html=True)
 st.title(f"🧪 Compilateur de Résultats Cobas & MPL vers Excel (Version {VERSION})")
 
 if not OCR_AVAILABLE:
-    st.warning("⚠️ Module `pytesseract` ou `Pillow` non détecté. Vous pourrez traiter les PDF, mais l'extraction depuis des images ne fonctionnera pas.")
+    st.warning("⚠️ Module `pytesseract` ou `Pillow` non détecté. L'extraction depuis des images sera désactivée.")
 
 if "etape" not in st.session_state:
     st.session_state.etape = 1
@@ -142,6 +143,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
     cobas_records = []
     mpl_records = []
     mots_cles_interp = ["non réactif", "nonreac", "réactif", "reac", "douteux", "positif", "négatif"]
+    unites_fausses = ["COI", "G/L", "MG/L", "U/L", "IU/L", "MMOL/L", "NG/ML", "PG/ML", "INDEX", "UI/ML", "MUI/ML", "IU/ML", "NG/DL", "UG/L", "MG/DL", "-", "TEST", "NONREAC", "NON REACTIF"]
     
     vocabulaire_mpl = []
     if csv_bytes:
@@ -192,14 +194,13 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                                             current_id = m_bar.group(1)
                                             break
                         
-                        # --- DÉTECTION DES RÉSULTATS ---
-                        m_test = re.match(r'^(?:\+\s*)?([A-Za-z0-9\-\_]+(?:\s*[A-Za-z0-9\-\_]+)?(?:\s*\+)?)\s+([<>]*\s*[0-9\.\*]+(?:\s*<Test|\s*>Test)?|<Test|>Test|Test|NonReac|Non\s*réactif|Positif|Négatif)', line_clean, re.IGNORECASE)
+                        # --- DÉTECTION DES RÉSULTATS COBAS ---
+                        m_test = re.match(r'^(?:\+\s*)?([A-Za-zÀ-ÿ0-9\-\_\.\/]+(?:\s+[A-Za-zÀ-ÿ0-9\-\_\.\/]+)*)\s+([<>]*\s*[0-9\.\*]+(?:\s*<Test|\s*>Test)?|<Test|>Test|Test|NonReac|Non\s*réactif|Positif|Négatif|En\s*cours)', line_clean, re.IGNORECASE)
                         if m_test and current_id:
                             test_name = m_test.group(1).strip()
                             test_name_upper = test_name.upper()
                             
-                            # FILTRE ANTI-DÉCHETS (Interdit les unités ou informations système d'être prises pour un test)
-                            unites_fausses = ["COI", "G/L", "MG/L", "U/L", "IU/L", "MMOL/L", "NG/ML", "PG/ML", "INDEX", "UI/ML", "MUI/ML", "IU/ML", "NG/DL", "UG/L", "MG/DL", "-", "TEST", "NONREAC", "NON REACTIF"]
+                            # FILTRE ANTI-DÉCHETS
                             if "COBAS" in test_name_upper or "SYSTEM" in test_name_upper or test_name_upper in unites_fausses:
                                 continue
                             if re.match(r'^(R[123]|SI|SI2|S12)\b', test_name_upper):
@@ -212,7 +213,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                             for j in range(1, 4):
                                 if i + j < len(lines):
                                     next_line = lines[i+j].replace('|', '').strip()
-                                    if re.match(r'^(?:\+\s*)?([A-Za-z0-9\-\_]+(?:\s*[A-Za-z0-9\-\_]+)?(?:\s*\+)?)\s+([<>]*\s*[0-9\.\*]+(?:\s*<Test|\s*>Test)?|<Test|>Test|Test|NonReac|Non\s*réactif|Positif|Négatif)', next_line, re.IGNORECASE):
+                                    if re.match(r'^(?:\+\s*)?([A-Za-zÀ-ÿ0-9\-\_\.\/]+(?:\s+[A-Za-zÀ-ÿ0-9\-\_\.\/]+)*)\s+([<>]*\s*[0-9\.\*]+(?:\s*<Test|\s*>Test)?|<Test|>Test|Test|NonReac|Non\s*réactif|Positif|Négatif|En\s*cours)', next_line, re.IGNORECASE):
                                         break
                                     m_unit = re.match(r'^([a-zA-Z\/\%µ]+)\s+([A-Za-z0-9\-\_]+)', next_line)
                                     if m_unit and not unit:
@@ -269,8 +270,18 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                             if not re.search(r'[A-Za-zÀ-ÿ]', test_name): continue
                             
                             test_name_final = libellong_to_nom.get(test_name.strip().lower(), test_name)
+                            
+                            res_unit_text = " ".join(parts[1:])
+                            m_res = re.match(r'^([<>]*\s*[0-9\.\*]+[aA]?(?:\s*<Test|\s*>Test)?|<Test|>Test|Test|\\?sup|positif|négatif|negatif|douteux|réactif|reactif|nonreac|non\s*réactif|indétectable|indetectable|En\s*cours)(.*)', res_unit_text.strip(), re.IGNORECASE)
+                            if m_res:
+                                res = m_res.group(1).strip()
+                                unit = m_res.group(2).strip()
+                            else:
+                                res = parts[1]
+                                unit = parts[2] if len(parts) > 2 else ""
+                            
                             mpl_records.append({
-                                "Nom de l'analyse": test_name_final, "Numéro de tube": tube_id, "Résulat MPL": parts[1], "Unité MPL": parts[2] if len(parts) > 2 else ""
+                                "Nom de l'analyse": test_name_final, "Numéro de tube": tube_id, "Résulat MPL": res, "Unité MPL": unit
                             })
                             
         # ================= LECTURE IMAGE AVEC PRE-TRAITEMENT =================
@@ -291,7 +302,6 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
             lines = [l.strip() for l in text.split('\n') if l.strip()]
             tube_id = "UNKNOWN"
             
-            # Nouveau scan global pour images
             text_full = " ".join(lines)
             m_examen = re.search(r'Examen\s*n.*?([A-Za-z0-9]{6,})', text_full, re.IGNORECASE)
             if m_examen:
@@ -320,7 +330,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                             
                 elif not test_name_trouve:
                     exclusions = ["validation", "séquence", "position", "essai", "patient", "né", "edité", "prélevé", "examen", "n°", "groupe", "sexe", "tri"]
-                    m_fallback = re.match(r'^([A-Za-z0-9\_]+(?:\s+[A-Za-z0-9\_]+)*)\s+(.*)', line)
+                    m_fallback = re.match(r'^([A-Za-zÀ-ÿ0-9\-\_\.\/]+(?:\s+[A-Za-zÀ-ÿ0-9\-\_\.\/]+)*)\s+(.*)', line)
                     if m_fallback:
                         pot_name = m_fallback.group(1).strip()
                         if not any(pot_name.lower().startswith(excl) for excl in exclusions) and re.search(r'[A-Za-z]', pot_name):
@@ -328,24 +338,30 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                             reste_ligne = m_fallback.group(2)
                 
                 if test_name_trouve and reste_ligne:
-                    tokens = reste_ligne.split()
+                    m_res = re.match(r'^([<>]*\s*[0-9\.\*]+[aA]?(?:\s*<Test|\s*>Test)?|<Test|>Test|Test|\\?sup|positif|négatif|negatif|douteux|réactif|reactif|nonreac|non\s*réactif|indétectable|indetectable|En\s*cours)(.*)', reste_ligne.strip(), re.IGNORECASE)
                     res, unit = "", ""
-                    
-                    for i, t in enumerate(tokens):
-                        t_clean = t.lower()
-                        t_clean_num = re.sub(r'[\|\]\!\?_©@\~\'\"\,]+$', '', t_clean) 
-                        t_clean_num_orig = re.sub(r'[\|\]\!\?_©@\~\'\"\,]+$', '', t) 
-                        
-                        is_res = False
-                        if re.match(r'^[<>]?\d+[\.,]?\d*[a-zA-Z]?$', t_clean_num): is_res = True
-                        elif t_clean_num in ["\\sup", "sup", "positif", "négatif", "negatif", "douteux", "réactif", "reactif", "nonreac", "indétectable", "indetectable"]: is_res = True
-                        
-                        if is_res:
-                            res = "\\SUP" if "sup" in t_clean_num else t_clean_num_orig
-                            if re.match(r'^[<>]?\d+a$', res.lower()): res = res[:-1] + '.4'
-                            elif re.match(r'^[<>]?\d+[\.,]\d*a$', res.lower()): res = res[:-1] + '4'
-                            if i + 1 < len(tokens): unit = " ".join(tokens[i+1:])
-                            break
+                    if m_res:
+                        res = m_res.group(1).strip()
+                        unit = m_res.group(2).strip()
+                        if re.match(r'^[<>]?\s*\d+a$', res.lower()): res = res[:-1] + '.4'
+                        elif re.match(r'^[<>]?\s*\d+[\.,]\d*a$', res.lower()): res = res[:-1] + '4'
+                    else:
+                        tokens = reste_ligne.split()
+                        for i, t in enumerate(tokens):
+                            t_clean = t.lower()
+                            t_clean_num = re.sub(r'[\|\]\!\?_©@\~\'\"\,]+$', '', t_clean) 
+                            t_clean_num_orig = re.sub(r'[\|\]\!\?_©@\~\'\"\,]+$', '', t) 
+                            
+                            is_res = False
+                            if re.match(r'^[<>]?\d+[\.,]?\d*[a-zA-Z]?$', t_clean_num): is_res = True
+                            elif t_clean_num in ["\\sup", "sup", "positif", "négatif", "negatif", "douteux", "réactif", "reactif", "nonreac", "indétectable", "indetectable"]: is_res = True
+                            
+                            if is_res:
+                                res = "\\SUP" if "sup" in t_clean_num else t_clean_num_orig
+                                if re.match(r'^[<>]?\d+a$', res.lower()): res = res[:-1] + '.4'
+                                elif re.match(r'^[<>]?\d+[\.,]\d*a$', res.lower()): res = res[:-1] + '4'
+                                if i + 1 < len(tokens): unit = " ".join(tokens[i+1:])
+                                break
                             
                     if res:
                         mpl_records.append({
