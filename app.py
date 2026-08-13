@@ -12,7 +12,7 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
-VERSION = "v5.23"
+VERSION = "v5.24"
 
 # =========================================================================
 # BASE DE DONNÉES INTERNE DES CODES ACN
@@ -148,6 +148,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
         "COI", "G/L", "MG/L", "U/L", "IU/L", "UI/L", "MIU/ML", "MUI/ML", "MUI/L",
         "MMOL/L", "MMOLE/L", "UMOLES/L", "UMOL/L", "PMOL/L", "NG/ML", "PG/ML", 
         "INDEX", "UI/ML", "IU/ML", "NG/DL", "UG/L", "MG/DL", "UG/DL", 
+        "µIU/ML", "µUI/ML", "UIU/ML", "UUI/ML", # Ajout des unités vues en erreur
         "-", "TEST", "NONREAC", "NON REACTIF"
     ]
     res_pattern = r'([<>]*\s*[0-9]+[\.\,]?[0-9]*[aA]?(?:\s*<Test|\s*>Test)?|<Test|>Test|\bTest\b|\\?sup|positif|négatif|negatif|douteux|réactif|reactif|nonreac|non\s*réactif|indétectable|indetectable|En\s*cours)'
@@ -201,9 +202,9 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                                             current_id = m_bar.group(1)
                                             break
                         
-                        # Nettoyage de l'ID (Suppression de la séquence si collée au PV)
-                        if current_id and current_id.startswith("PV") and len(current_id) >= 14:
-                            current_id = re.sub(r'\d{5,6}$', '', current_id)
+                        # CORRECTION v5.24 : Nettoyage STRICT des 5 chiffres de séquence si collé
+                        if current_id and current_id.startswith("PV") and len(current_id) >= 15:
+                            current_id = re.sub(r'\d{5}$', '', current_id)
                         
                         # --- DÉTECTION DES RÉSULTATS COBAS ---
                         matches = list(re.finditer(r'\s+'+res_pattern+r'(?=\s|$)', line_clean, re.IGNORECASE))
