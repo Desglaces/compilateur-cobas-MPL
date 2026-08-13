@@ -12,7 +12,7 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
-VERSION = "v5.16"
+VERSION = "v5.17"
 
 # =========================================================================
 # BASE DE DONNÉES INTERNE DES CODES ACN
@@ -176,14 +176,24 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                     lines = [l.strip() for l in text.split('\n') if l.strip()]
                     
                     for i, line in enumerate(lines):
-                        if "ID" in line:
-                            m_glued = re.search(r'ID\s*:\s*(\d+?)\d{5}-\d+', line)
-                            if m_glued: current_id = m_glued.group(1)
-                            else:
-                                m_normal = re.search(r'ID\s*:\s*(\d+)', line)
-                                if m_normal: current_id = m_normal.group(1)
+                        line_clean = line.replace('|', '').strip()
                         
-                        m_test = re.match(r'^(?:\+\s*)?([A-Z0-9\-\_]+(?:\s*[0-9A-Z\-\_]+)?(?:\s*\+)?)\s+([0-9\.\<\>\*]+)', line)
+                        # --- DÉTECTION DES ID COBAS (INCLUANT LES PV...) ---
+                        if "ID" in line_clean:
+                            m_id = re.search(r'ID\s*[:]?\s*([A-Za-z0-9_]+)', line_clean)
+                            if m_id and m_id.group(1).upper() not in ["ID", "RACK"]:
+                                current_id = m_id.group(1)
+                            else:
+                                for offset in [-2, -1, 1, 2]:
+                                    if 0 <= i + offset < len(lines):
+                                        surr_line = lines[i+offset].replace('|', '').strip()
+                                        m_bar = re.search(r'\b(PV[A-Za-z0-9]{5,}|\d{8,16})\b', surr_line)
+                                        if m_bar:
+                                            current_id = m_bar.group(1)
+                                            break
+                        
+                        # --- DÉTECTION DES RÉSULTATS (INCLUANT <Test) --- 
+                        m_test = re.match(r'^(?:\+\s*)?([A-Za-z0-9\-\_]+(?:\s*[A-Za-z0-9\-\_]+)?(?:\s*\+)?)\s+([<>]*\s*[0-9\.\*]+(?:\s*<Test|\s*>Test)?|<Test|>Test|Test|NonReac|Non\s*réactif|Positif|Négatif)', line_clean, re.IGNORECASE)
                         if m_test and current_id:
                             test_name = m_test.group(1).strip()
                             test_name_upper = test_name.upper()
@@ -197,8 +207,8 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                             
                             for j in range(1, 4):
                                 if i + j < len(lines):
-                                    next_line = lines[i+j]
-                                    if re.match(r'^(?:\+\s*)?([A-Z0-9\-\_]+(?:\s*[0-9A-Z\-\_]+)?(?:\s*\+)?)\s+([0-9\.\<\>\*]+)', next_line):
+                                    next_line = lines[i+j].replace('|', '').strip()
+                                    if re.match(r'^(?:\+\s*)?([A-Za-z0-9\-\_]+(?:\s*[A-Za-z0-9\-\_]+)?(?:\s*\+)?)\s+([<>]*\s*[0-9\.\*]+(?:\s*<Test|\s*>Test)?|<Test|>Test|Test|NonReac|Non\s*réactif|Positif|Négatif)', next_line, re.IGNORECASE):
                                         break
                                     m_unit = re.match(r'^([a-zA-Z\/\%µ]+)\s+([A-Za-z0-9\-\_]+)', next_line)
                                     if m_unit and not unit:
@@ -230,10 +240,23 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                     page_layout = page.extract_text(extraction_mode="layout")
                     lines = [l.strip() for l in page_layout.split('\n') if l.strip()]
                     
+                    # --- DÉTECTION DES ID MPL ---
                     if tube_id == "UNKNOWN":
                         for line in lines:
-                            m_id = re.search(r'\b(\d{8,16})\b', line)
-                            if m_id: tube_id = m_id.group(1); break
+                            m_examen = re.search(r'Examen n[°o]\s*([A-Za-z0-9_]+)', line, re.IGNORECASE)
+                            if m_examen:
+                                tube_id = m_examen.group(1)
+                                break
+                            m_pv = re.search(r'\b(PV[A-Za-z0-9]{5,})\b', line)
+                            if m_pv:
+                                tube_id = m_pv.group(1)
+                                break
+                        if tube_id == "UNKNOWN":
+                            for line in lines:
+                                m_id = re.search(r'\b(\d{8,16})\b', line)
+                                if m_id: 
+                                    tube_id = m_id.group(1)
+                                    break
                     
                     for line in lines:
                         if "En cours" in line or "Normales" in line or "Résultat" in line or "Page" in line: continue
@@ -253,22 +276,12 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
         elif file_ext in ['png', 'jpg', 'jpeg'] and OCR_AVAILABLE:
             try:
                 img = Image.open(uploaded_file)
-                
-                # --- PRÉ-TRAITEMENT POUR AMÉLIORER L'OCR ---
-                # 1. Agrandissement x2 (aide énormément Tesseract sur les petites polices)
                 w, h = img.size
                 img = img.resize((w * 2, h * 2), getattr(Image, 'LANCZOS', getattr(Image, 'ANTIALIAS', 1)))
-                
-                # 2. Passage en nuances de gris (supprime les interférences de couleur)
                 img = img.convert('L')
-                
-                # 3. Augmentation du contraste 
                 enhancer = ImageEnhance.Contrast(img)
                 img = enhancer.enhance(2.0)
-                
-                # 4. Binarisation (force le fond à être bien blanc et le texte bien noir)
                 img = img.point(lambda p: 255 if p > 150 else 0)
-                # ---------------------------------------------
                 
                 text = pytesseract.image_to_string(img, config='--psm 6')
             except Exception as e:
@@ -278,8 +291,20 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
             tube_id = "UNKNOWN"
             
             for line in lines:
-                m_id = re.search(r'\b(\d{10,14})\b', line)
-                if m_id: tube_id = m_id.group(1); break
+                m_examen = re.search(r'Examen n[°o]\s*([A-Za-z0-9_]+)', line, re.IGNORECASE)
+                if m_examen:
+                    tube_id = m_examen.group(1)
+                    break
+                m_pv = re.search(r'\b(PV[A-Za-z0-9]{5,})\b', line)
+                if m_pv:
+                    tube_id = m_pv.group(1)
+                    break
+            if tube_id == "UNKNOWN":
+                for line in lines:
+                    m_id = re.search(r'\b(\d{8,16})\b', line)
+                    if m_id:
+                        tube_id = m_id.group(1)
+                        break
                     
             for line in lines:
                 test_name_trouve = None
@@ -348,7 +373,7 @@ with col_b:
 
 if uploaded_files and uploaded_csv:
     if st.button("📥 Extraire les données des fichiers"):
-        with st.spinner("Lecture et nettoyage d'image en cours..."):
+        with st.spinner("Lecture et analyse intelligente en cours..."):
             csv_mpl_bytes = uploaded_csv_mpl.getvalue() if uploaded_csv_mpl else None
             df_cobas, df_mpl = process_files(uploaded_files, uploaded_csv.getvalue(), csv_mpl_bytes)
             st.session_state.df_cobas = df_cobas
@@ -490,7 +515,7 @@ if st.session_state.etape == 3:
                 styles.loc[idx, :] = 'background-color: #ffcccc'
                 continue
                 
-            # 2. Différence de résultats (Rose vif) -> Utilise la tolérance d'arrondi
+            # 2. Différence de résultats (Rose vif)
             if not are_values_equivalent(cpro_val, mpl_val):
                 styles.loc[idx, "Résultat CPRO"] = 'background-color: #ff99cc'
                 styles.loc[idx, "Résulat MPL"] = 'background-color: #ff99cc'
