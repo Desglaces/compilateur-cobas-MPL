@@ -12,7 +12,7 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
-VERSION = "v5.17"
+VERSION = "v5.18"
 
 # =========================================================================
 # BASE DE DONNÉES INTERNE DES CODES ACN
@@ -178,7 +178,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                     for i, line in enumerate(lines):
                         line_clean = line.replace('|', '').strip()
                         
-                        # --- DÉTECTION DES ID COBAS (INCLUANT LES PV...) ---
+                        # --- DÉTECTION DES ID COBAS ---
                         if "ID" in line_clean:
                             m_id = re.search(r'ID\s*[:]?\s*([A-Za-z0-9_]+)', line_clean)
                             if m_id and m_id.group(1).upper() not in ["ID", "RACK"]:
@@ -192,12 +192,16 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                                             current_id = m_bar.group(1)
                                             break
                         
-                        # --- DÉTECTION DES RÉSULTATS (INCLUANT <Test) --- 
+                        # --- DÉTECTION DES RÉSULTATS ---
                         m_test = re.match(r'^(?:\+\s*)?([A-Za-z0-9\-\_]+(?:\s*[A-Za-z0-9\-\_]+)?(?:\s*\+)?)\s+([<>]*\s*[0-9\.\*]+(?:\s*<Test|\s*>Test)?|<Test|>Test|Test|NonReac|Non\s*réactif|Positif|Négatif)', line_clean, re.IGNORECASE)
                         if m_test and current_id:
                             test_name = m_test.group(1).strip()
                             test_name_upper = test_name.upper()
                             
+                            # FILTRE ANTI-DÉCHETS (Interdit les unités ou informations système d'être prises pour un test)
+                            unites_fausses = ["COI", "G/L", "MG/L", "U/L", "IU/L", "MMOL/L", "NG/ML", "PG/ML", "INDEX", "UI/ML", "MUI/ML", "IU/ML", "NG/DL", "UG/L", "MG/DL", "-", "TEST", "NONREAC", "NON REACTIF"]
+                            if "COBAS" in test_name_upper or "SYSTEM" in test_name_upper or test_name_upper in unites_fausses:
+                                continue
                             if re.match(r'^(R[123]|SI|SI2|S12)\b', test_name_upper):
                                 continue
                             
@@ -240,23 +244,20 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                     page_layout = page.extract_text(extraction_mode="layout")
                     lines = [l.strip() for l in page_layout.split('\n') if l.strip()]
                     
-                    # --- DÉTECTION DES ID MPL ---
+                    # --- NOUVEAU RADAR ID MPL (Scan global) ---
                     if tube_id == "UNKNOWN":
-                        for line in lines:
-                            m_examen = re.search(r'Examen n[°o]\s*([A-Za-z0-9_]+)', line, re.IGNORECASE)
-                            if m_examen:
-                                tube_id = m_examen.group(1)
-                                break
-                            m_pv = re.search(r'\b(PV[A-Za-z0-9]{5,})\b', line)
+                        text_full = " ".join(lines)
+                        m_examen = re.search(r'Examen\s*n.*?([A-Za-z0-9]{6,})', text_full, re.IGNORECASE)
+                        if m_examen:
+                            tube_id = m_examen.group(1)
+                        else:
+                            m_pv = re.search(r'(PV[A-Za-z0-9]{5,})', text_full)
                             if m_pv:
                                 tube_id = m_pv.group(1)
-                                break
-                        if tube_id == "UNKNOWN":
-                            for line in lines:
-                                m_id = re.search(r'\b(\d{8,16})\b', line)
-                                if m_id: 
+                            else:
+                                m_id = re.search(r'\b(\d{8,16})\b', text_full)
+                                if m_id:
                                     tube_id = m_id.group(1)
-                                    break
                     
                     for line in lines:
                         if "En cours" in line or "Normales" in line or "Résultat" in line or "Page" in line: continue
@@ -290,21 +291,19 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
             lines = [l.strip() for l in text.split('\n') if l.strip()]
             tube_id = "UNKNOWN"
             
-            for line in lines:
-                m_examen = re.search(r'Examen n[°o]\s*([A-Za-z0-9_]+)', line, re.IGNORECASE)
-                if m_examen:
-                    tube_id = m_examen.group(1)
-                    break
-                m_pv = re.search(r'\b(PV[A-Za-z0-9]{5,})\b', line)
+            # Nouveau scan global pour images
+            text_full = " ".join(lines)
+            m_examen = re.search(r'Examen\s*n.*?([A-Za-z0-9]{6,})', text_full, re.IGNORECASE)
+            if m_examen:
+                tube_id = m_examen.group(1)
+            else:
+                m_pv = re.search(r'(PV[A-Za-z0-9]{5,})', text_full)
                 if m_pv:
                     tube_id = m_pv.group(1)
-                    break
-            if tube_id == "UNKNOWN":
-                for line in lines:
-                    m_id = re.search(r'\b(\d{8,16})\b', line)
+                else:
+                    m_id = re.search(r'\b(\d{8,16})\b', text_full)
                     if m_id:
                         tube_id = m_id.group(1)
-                        break
                     
             for line in lines:
                 test_name_trouve = None
