@@ -12,7 +12,7 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
-VERSION = "v5.22"
+VERSION = "v5.23"
 
 # =========================================================================
 # BASE DE DONNÉES INTERNE DES CODES ACN
@@ -144,7 +144,12 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
     mpl_records = []
     
     mots_cles_interp = ["non réactif", "nonreac", "réactif", "reac", "douteux", "positif", "négatif"]
-    unites_fausses = ["COI", "G/L", "MG/L", "U/L", "IU/L", "MMOL/L", "NG/ML", "PG/ML", "INDEX", "UI/ML", "MUI/ML", "IU/ML", "NG/DL", "UG/L", "MG/DL", "UG/DL", "-", "TEST", "NONREAC", "NON REACTIF"]
+    unites_fausses = [
+        "COI", "G/L", "MG/L", "U/L", "IU/L", "UI/L", "MIU/ML", "MUI/ML", "MUI/L",
+        "MMOL/L", "MMOLE/L", "UMOLES/L", "UMOL/L", "PMOL/L", "NG/ML", "PG/ML", 
+        "INDEX", "UI/ML", "IU/ML", "NG/DL", "UG/L", "MG/DL", "UG/DL", 
+        "-", "TEST", "NONREAC", "NON REACTIF"
+    ]
     res_pattern = r'([<>]*\s*[0-9]+[\.\,]?[0-9]*[aA]?(?:\s*<Test|\s*>Test)?|<Test|>Test|\bTest\b|\\?sup|positif|négatif|negatif|douteux|réactif|reactif|nonreac|non\s*réactif|indétectable|indetectable|En\s*cours)'
     
     vocabulaire_mpl = []
@@ -195,6 +200,10 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                                         if m_bar:
                                             current_id = m_bar.group(1)
                                             break
+                        
+                        # Nettoyage de l'ID (Suppression de la séquence si collée au PV)
+                        if current_id and current_id.startswith("PV") and len(current_id) >= 14:
+                            current_id = re.sub(r'\d{5,6}$', '', current_id)
                         
                         # --- DÉTECTION DES RÉSULTATS COBAS ---
                         matches = list(re.finditer(r'\s+'+res_pattern+r'(?=\s|$)', line_clean, re.IGNORECASE))
@@ -302,7 +311,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                                 res = parts[1]
                                 unit_raw = parts[2] if len(parts) > 2 else ""
                             
-                            # Nettoyage strict de l'unité (suppression des valeurs normales et symboles)
+                            # Nettoyage strict de l'unité
                             unit = re.split(r'\s+(?:[0-9]|[\↑\↓\☒\个<>\~])', unit_raw)[0].strip() if unit_raw else ""
                             
                             mpl_records.append({
