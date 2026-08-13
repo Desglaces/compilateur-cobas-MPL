@@ -12,7 +12,7 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
-VERSION = "v5.19"
+VERSION = "v5.20"
 
 # =========================================================================
 # BASE DE DONNÉES INTERNE DES CODES ACN
@@ -142,8 +142,10 @@ if "etape" not in st.session_state:
 def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
     cobas_records = []
     mpl_records = []
+    
     mots_cles_interp = ["non réactif", "nonreac", "réactif", "reac", "douteux", "positif", "négatif"]
-    unites_fausses = ["COI", "G/L", "MG/L", "U/L", "IU/L", "MMOL/L", "NG/ML", "PG/ML", "INDEX", "UI/ML", "MUI/ML", "IU/ML", "NG/DL", "UG/L", "MG/DL", "-", "TEST", "NONREAC", "NON REACTIF"]
+    unites_fausses = ["COI", "G/L", "MG/L", "U/L", "IU/L", "MMOL/L", "NG/ML", "PG/ML", "INDEX", "UI/ML", "MUI/ML", "IU/ML", "NG/DL", "UG/L", "MG/DL", "UG/DL", "-", "TEST", "NONREAC", "NON REACTIF"]
+    res_pattern = r'([<>]*\s*[0-9]+[\.\,]?[0-9]*[aA]?(?:\s*<Test|\s*>Test)?|<Test|>Test|\bTest\b|\\?sup|positif|négatif|negatif|douteux|réactif|reactif|nonreac|non\s*réactif|indétectable|indetectable|En\s*cours)'
     
     vocabulaire_mpl = []
     if csv_bytes:
@@ -195,57 +197,76 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                                             break
                         
                         # --- DÉTECTION DES RÉSULTATS COBAS ---
-                        m_test = re.match(r'^(?:\+\s*)?([A-Za-zÀ-ÿ0-9\-\_\.\/]+(?:\s+[A-Za-zÀ-ÿ0-9\-\_\.\/]+)*)\s+([<>]*\s*[0-9\.\*]+(?:\s*<Test|\s*>Test)?|<Test|>Test|Test|NonReac|Non\s*réactif|Positif|Négatif|En\s*cours)', line_clean, re.IGNORECASE)
-                        if m_test and current_id:
-                            test_name = m_test.group(1).strip()
+                        matches = list(re.finditer(r'\s+'+res_pattern+r'(?=\s|$)', line_clean, re.IGNORECASE))
+                        if matches and current_id:
+                            last_match = matches[-1]
+                            test_name = line_clean[:last_match.start()].strip()
+                            test_name = re.sub(r'^\+\s*', '', test_name).strip()
                             test_name_upper = test_name.upper()
                             
-                            # FILTRE ANTI-DÉCHETS
-                            if "COBAS" in test_name_upper or "SYSTEM" in test_name_upper or test_name_upper in unites_fausses:
-                                continue
-                            if re.match(r'^(R[123]|SI|SI2|S12)\b', test_name_upper):
-                                continue
+                            # --- FILTRE ANTI-DÉCHETS STRICT ---
+                            is_waste = False
+                            if not test_name_upper: is_waste = True
+                            if "COBAS" in test_name_upper or "SYSTEM" in test_name_upper: is_waste = True
+                            if re.match(r'^(R[123]|SI|SI2|S12)\b', test_name_upper): is_waste = True
+                            if test_name_upper.startswith("SEQUENCE") or test_name_upper.startswith("SÉQUENCE"): is_waste = True
+                            for u in unites_fausses:
+                                if test_name_upper == u or test_name_upper.startswith(u + " ") or test_name_upper.startswith(u + "-"):
+                                    is_waste = True
+                                    break
                             
-                            result = m_test.group(2).strip()
-                            unit, module = "", ""
-                            interpretation_text = None
-                            
-                            for j in range(1, 4):
-                                if i + j < len(lines):
-                                    next_line = lines[i+j].replace('|', '').strip()
-                                    if re.match(r'^(?:\+\s*)?([A-Za-zÀ-ÿ0-9\-\_\.\/]+(?:\s+[A-Za-zÀ-ÿ0-9\-\_\.\/]+)*)\s+([<>]*\s*[0-9\.\*]+(?:\s*<Test|\s*>Test)?|<Test|>Test|Test|NonReac|Non\s*réactif|Positif|Négatif|En\s*cours)', next_line, re.IGNORECASE):
-                                        break
-                                    m_unit = re.match(r'^([a-zA-Z\/\%µ]+)\s+([A-Za-z0-9\-\_]+)', next_line)
-                                    if m_unit and not unit:
-                                        unit = m_unit.group(1).strip()
-                                        module_raw = m_unit.group(2).strip()
+                            if not is_waste:
+                                result = last_match.group(1).strip()
+                                unit, module = "", ""
+                                interpretation_text = None
+                                
+                                for j in range(1, 4):
+                                    if i + j < len(lines):
+                                        next_line = lines[i+j].replace('|', '').strip()
                                         
-                                        if module_raw.isdigit():
-                                            module = str(int(module_raw) - 1)
-                                        elif "-" in module_raw:
-                                            parts = module_raw.split("-")
-                                            for k in range(len(parts)):
-                                                if parts[k].isdigit():
-                                                    parts[k] = str(int(parts[k]) - 1)
+                                        # Sécurité : Si la ligne suivante est un VRAI test, on s'arrête.
+                                        next_matches = list(re.finditer(r'\s+'+res_pattern+r'(?=\s|$)', next_line, re.IGNORECASE))
+                                        if next_matches:
+                                            next_test_name = next_line[:next_matches[-1].start()].strip()
+                                            next_test_name_upper = re.sub(r'^\+\s*', '', next_test_name).strip().upper()
+                                            is_next_waste = False
+                                            for u in unites_fausses:
+                                                if next_test_name_upper == u or next_test_name_upper.startswith(u + " ") or next_test_name_upper.startswith(u + "-"):
+                                                    is_next_waste = True
                                                     break
-                                            module = "-".join(parts)
-                                        else:
-                                            module = module_raw
+                                            if not is_next_waste and "COBAS" not in next_test_name_upper and "SYSTEM" not in next_test_name_upper:
+                                                break
+                                                
+                                        m_unit = re.match(r'^([a-zA-Z\/\%µ]+)\s+([A-Za-z0-9\-\_]+)', next_line)
+                                        if m_unit and not unit:
+                                            unit = m_unit.group(1).strip()
+                                            module_raw = m_unit.group(2).strip()
                                             
-                                    next_line_clean = next_line.lower()
-                                    if any(interp in next_line_clean for interp in mots_cles_interp) and "réanalyse" not in next_line_clean:
-                                        interpretation_text = next_line.strip()
-                                        
-                            cobas_records.append({"Nom de l'analyse": test_name, "Numéro de tube": current_id, "Module CPRO": module, "Résultat CPRO": result, "Unité CPRO": unit})
-                            if interpretation_text:
-                                cobas_records.append({"Nom de l'analyse": f"{test_name} (Interprétation)", "Numéro de tube": current_id, "Module CPRO": module, "Résultat CPRO": interpretation_text, "Unité CPRO": ""})
+                                            if module_raw.isdigit():
+                                                module = str(int(module_raw) - 1)
+                                            elif "-" in module_raw:
+                                                parts = module_raw.split("-")
+                                                for k in range(len(parts)):
+                                                    if parts[k].isdigit():
+                                                        parts[k] = str(int(parts[k]) - 1)
+                                                        break
+                                                module = "-".join(parts)
+                                            else:
+                                                module = module_raw
+                                                
+                                        next_line_clean = next_line.lower()
+                                        if any(interp in next_line_clean for interp in mots_cles_interp) and "réanalyse" not in next_line_clean:
+                                            interpretation_text = next_line.strip()
+                                            
+                                cobas_records.append({"Nom de l'analyse": test_name, "Numéro de tube": current_id, "Module CPRO": module, "Résultat CPRO": result, "Unité CPRO": unit})
+                                if interpretation_text:
+                                    cobas_records.append({"Nom de l'analyse": f"{test_name} (Interprétation)", "Numéro de tube": current_id, "Module CPRO": module, "Résultat CPRO": interpretation_text, "Unité CPRO": ""})
             else:
                 tube_id = "UNKNOWN"
                 for page in reader.pages:
                     page_layout = page.extract_text(extraction_mode="layout")
                     lines = [l.strip() for l in page_layout.split('\n') if l.strip()]
                     
-                    # --- NOUVEAU RADAR ID MPL (Scan global) ---
                     if tube_id == "UNKNOWN":
                         text_full = " ".join(lines)
                         m_examen = re.search(r'Examen\s*n.*?([A-Za-z0-9]{6,})', text_full, re.IGNORECASE)
@@ -261,7 +282,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                                     tube_id = m_id.group(1)
                     
                     for line in lines:
-                        if "En cours" in line or "Normales" in line or "Résultat" in line or "Page" in line: continue
+                        if line.strip().startswith("Page ") or "Normales" in line or line.strip() == "Résultat": continue
                         parts = [p.strip() for p in re.split(r'\s{2,}', line) if p.strip()]
                         if len(parts) >= 2:
                             test_name = parts[0]
@@ -272,7 +293,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                             test_name_final = libellong_to_nom.get(test_name.strip().lower(), test_name)
                             
                             res_unit_text = " ".join(parts[1:])
-                            m_res = re.match(r'^([<>]*\s*[0-9\.\*]+[aA]?(?:\s*<Test|\s*>Test)?|<Test|>Test|Test|\\?sup|positif|négatif|negatif|douteux|réactif|reactif|nonreac|non\s*réactif|indétectable|indetectable|En\s*cours)(.*)', res_unit_text.strip(), re.IGNORECASE)
+                            m_res = re.match(r'^'+res_pattern+r'(.*)', res_unit_text.strip(), re.IGNORECASE)
                             if m_res:
                                 res = m_res.group(1).strip()
                                 unit = m_res.group(2).strip()
@@ -329,39 +350,34 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                             break
                             
                 elif not test_name_trouve:
-                    exclusions = ["validation", "séquence", "position", "essai", "patient", "né", "edité", "prélevé", "examen", "n°", "groupe", "sexe", "tri"]
-                    m_fallback = re.match(r'^([A-Za-zÀ-ÿ0-9\-\_\.\/]+(?:\s+[A-Za-zÀ-ÿ0-9\-\_\.\/]+)*)\s+(.*)', line)
-                    if m_fallback:
-                        pot_name = m_fallback.group(1).strip()
-                        if not any(pot_name.lower().startswith(excl) for excl in exclusions) and re.search(r'[A-Za-z]', pot_name):
+                    matches = list(re.finditer(r'\s+'+res_pattern+r'(?=\s|$)', line, re.IGNORECASE))
+                    if matches:
+                        last_match = matches[-1]
+                        pot_name = line[:last_match.start()].strip()
+                        pot_name = re.sub(r'^\+\s*', '', pot_name).strip()
+                        exclusions = ["validation", "séquence", "position", "essai", "patient", "né", "edité", "prélevé", "examen", "n°", "groupe", "sexe", "tri"]
+                        
+                        is_waste = False
+                        if not pot_name or not re.search(r'[A-Za-z]', pot_name): is_waste = True
+                        if any(pot_name.lower().startswith(excl) for excl in exclusions): is_waste = True
+                        if "COBAS" in pot_name.upper() or "SYSTEM" in pot_name.upper(): is_waste = True
+                        for u in unites_fausses:
+                            if pot_name.upper() == u or pot_name.upper().startswith(u + " ") or pot_name.upper().startswith(u + "-"):
+                                is_waste = True
+                                break
+                        
+                        if not is_waste:
                             test_name_trouve = pot_name
-                            reste_ligne = m_fallback.group(2)
+                            reste_ligne = line[last_match.start():]
                 
                 if test_name_trouve and reste_ligne:
-                    m_res = re.match(r'^([<>]*\s*[0-9\.\*]+[aA]?(?:\s*<Test|\s*>Test)?|<Test|>Test|Test|\\?sup|positif|négatif|negatif|douteux|réactif|reactif|nonreac|non\s*réactif|indétectable|indetectable|En\s*cours)(.*)', reste_ligne.strip(), re.IGNORECASE)
+                    m_res = re.match(r'^\s*'+res_pattern+r'(.*)', reste_ligne.strip(), re.IGNORECASE)
                     res, unit = "", ""
                     if m_res:
                         res = m_res.group(1).strip()
                         unit = m_res.group(2).strip()
                         if re.match(r'^[<>]?\s*\d+a$', res.lower()): res = res[:-1] + '.4'
                         elif re.match(r'^[<>]?\s*\d+[\.,]\d*a$', res.lower()): res = res[:-1] + '4'
-                    else:
-                        tokens = reste_ligne.split()
-                        for i, t in enumerate(tokens):
-                            t_clean = t.lower()
-                            t_clean_num = re.sub(r'[\|\]\!\?_©@\~\'\"\,]+$', '', t_clean) 
-                            t_clean_num_orig = re.sub(r'[\|\]\!\?_©@\~\'\"\,]+$', '', t) 
-                            
-                            is_res = False
-                            if re.match(r'^[<>]?\d+[\.,]?\d*[a-zA-Z]?$', t_clean_num): is_res = True
-                            elif t_clean_num in ["\\sup", "sup", "positif", "négatif", "negatif", "douteux", "réactif", "reactif", "nonreac", "indétectable", "indetectable"]: is_res = True
-                            
-                            if is_res:
-                                res = "\\SUP" if "sup" in t_clean_num else t_clean_num_orig
-                                if re.match(r'^[<>]?\d+a$', res.lower()): res = res[:-1] + '.4'
-                                elif re.match(r'^[<>]?\d+[\.,]\d*a$', res.lower()): res = res[:-1] + '4'
-                                if i + 1 < len(tokens): unit = " ".join(tokens[i+1:])
-                                break
                             
                     if res:
                         mpl_records.append({
