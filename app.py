@@ -12,7 +12,7 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
-VERSION = "v5.20"
+VERSION = "v5.22"
 
 # =========================================================================
 # BASE DE DONNÉES INTERNE DES CODES ACN
@@ -180,7 +180,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                     lines = [l.strip() for l in text.split('\n') if l.strip()]
                     
                     for i, line in enumerate(lines):
-                        line_clean = line.replace('|', '').strip()
+                        line_clean = line.replace('|', ' ').strip()
                         
                         # --- DÉTECTION DES ID COBAS ---
                         if "ID" in line_clean:
@@ -190,7 +190,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                             else:
                                 for offset in [-2, -1, 1, 2]:
                                     if 0 <= i + offset < len(lines):
-                                        surr_line = lines[i+offset].replace('|', '').strip()
+                                        surr_line = lines[i+offset].replace('|', ' ').strip()
                                         m_bar = re.search(r'\b(PV[A-Za-z0-9]{5,}|\d{8,16})\b', surr_line)
                                         if m_bar:
                                             current_id = m_bar.group(1)
@@ -222,7 +222,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                                 
                                 for j in range(1, 4):
                                     if i + j < len(lines):
-                                        next_line = lines[i+j].replace('|', '').strip()
+                                        next_line = lines[i+j].replace('|', ' ').strip()
                                         
                                         # Sécurité : Si la ligne suivante est un VRAI test, on s'arrête.
                                         next_matches = list(re.finditer(r'\s+'+res_pattern+r'(?=\s|$)', next_line, re.IGNORECASE))
@@ -294,12 +294,16 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                             
                             res_unit_text = " ".join(parts[1:])
                             m_res = re.match(r'^'+res_pattern+r'(.*)', res_unit_text.strip(), re.IGNORECASE)
+                            
                             if m_res:
                                 res = m_res.group(1).strip()
-                                unit = m_res.group(2).strip()
+                                unit_raw = m_res.group(2).strip()
                             else:
                                 res = parts[1]
-                                unit = parts[2] if len(parts) > 2 else ""
+                                unit_raw = parts[2] if len(parts) > 2 else ""
+                            
+                            # Nettoyage strict de l'unité (suppression des valeurs normales et symboles)
+                            unit = re.split(r'\s+(?:[0-9]|[\↑\↓\☒\个<>\~])', unit_raw)[0].strip() if unit_raw else ""
                             
                             mpl_records.append({
                                 "Nom de l'analyse": test_name_final, "Numéro de tube": tube_id, "Résulat MPL": res, "Unité MPL": unit
@@ -372,14 +376,16 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                 
                 if test_name_trouve and reste_ligne:
                     m_res = re.match(r'^\s*'+res_pattern+r'(.*)', reste_ligne.strip(), re.IGNORECASE)
-                    res, unit = "", ""
+                    res, unit_raw = "", ""
                     if m_res:
                         res = m_res.group(1).strip()
-                        unit = m_res.group(2).strip()
+                        unit_raw = m_res.group(2).strip()
                         if re.match(r'^[<>]?\s*\d+a$', res.lower()): res = res[:-1] + '.4'
                         elif re.match(r'^[<>]?\s*\d+[\.,]\d*a$', res.lower()): res = res[:-1] + '4'
                             
                     if res:
+                        # Nettoyage strict de l'unité
+                        unit = re.split(r'\s+(?:[0-9]|[\↑\↓\☒\个<>\~])', unit_raw)[0].strip() if unit_raw else ""
                         mpl_records.append({
                             "Nom de l'analyse": test_name_trouve, "Numéro de tube": tube_id, "Résulat MPL": res, "Unité MPL": unit
                         })
