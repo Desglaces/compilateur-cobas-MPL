@@ -13,7 +13,7 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
-VERSION = "v5.26"
+VERSION = "v5.27"
 
 # =========================================================================
 # BASE DE DONNÉES INTERNE DES CODES ACN
@@ -87,6 +87,12 @@ def read_csv_safe(file_bytes):
                 if len(df.columns) > 1: return df
             except: pass
     return pd.read_csv(io.BytesIO(file_bytes), sep=';')
+
+def clean_acn(val):
+    s = str(val).strip()
+    if s.endswith('.0'):
+        return s[:-2]
+    return s
 
 def are_values_equivalent(v1, v2):
     s1, s2 = str(v1).strip().lower(), str(v2).strip().lower()
@@ -175,16 +181,10 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
     def get_best_mpl_nom(test_name_pdf):
         if not libellong_list: return test_name_pdf
         tn = test_name_pdf.strip()
-        
-        # 1. Correspondance exacte sensible à la casse
         for ll, n in libellong_list:
             if ll == tn: return n
-            
-        # 2. Correspondance exacte insensible à la casse
         for ll, n in libellong_list:
             if ll.lower() == tn.lower(): return n
-            
-        # 3. Correspondance intelligente de proximité (Fuzzy matching)
         best_n = tn
         best_ratio = 0.0
         for ll, n in libellong_list:
@@ -192,7 +192,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
             if ratio > best_ratio:
                 best_ratio = ratio
                 best_n = n
-        if best_ratio > 0.85: # Seuil de confiance élevé (85%)
+        if best_ratio > 0.85:
             return best_n
         return tn
     
@@ -326,7 +326,6 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                             if any(test_name.lower().startswith(excl) for excl in exclusions): continue
                             if not re.search(r'[A-Za-zÀ-ÿ]', test_name): continue
                             
-                            # Traduction intelligente vers le code court MPL
                             test_name_final = get_best_mpl_nom(test_name)
                             
                             res_unit_text = " ".join(parts[1:])
@@ -339,9 +338,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                                 res = parts[1]
                                 unit_raw = parts[2] if len(parts) > 2 else ""
                             
-                            # Nettoyage strict de l'unité
                             unit = re.split(r'\s+(?:[0-9]|[\↑\↓\☒\个<>\~])', unit_raw)[0].strip() if unit_raw else ""
-                            
                             mpl_records.append({
                                 "Nom de l'analyse": test_name_final, "Numéro de tube": tube_id, "Résulat MPL": res, "Unité MPL": unit
                             })
@@ -421,7 +418,6 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                         elif re.match(r'^[<>]?\s*\d+[\.,]\d*a$', res.lower()): res = res[:-1] + '4'
                             
                     if res:
-                        # Nettoyage strict de l'unité
                         unit = re.split(r'\s+(?:[0-9]|[\↑\↓\☒\个<>\~])', unit_raw)[0].strip() if unit_raw else ""
                         mpl_records.append({
                             "Nom de l'analyse": get_best_mpl_nom(test_name_trouve), "Numéro de tube": tube_id, "Résulat MPL": res, "Unité MPL": unit
@@ -473,7 +469,7 @@ if st.session_state.etape >= 2:
     
     acn_to_mpl = {}
     for _, row in df_driver.iterrows():
-        acn = str(row[col_acn_driver]).strip()
+        acn = clean_acn(row[col_acn_driver])
         nom = str(row[col_nom_driver]).strip()
         if acn and acn != 'nan': acn_to_mpl[acn] = nom
     
@@ -551,7 +547,9 @@ if st.session_state.etape >= 2:
                 for col in df_combined.columns:
                     if col in df_final.columns: df_final[col] = df_combined[col]
 
-                df_driver[col_acn_driver] = df_driver[col_acn_driver].astype(str).str.strip()
+                # Application du nettoyeur à tout le dataframe
+                df_driver[col_acn_driver] = df_driver[col_acn_driver].apply(clean_acn)
+                
                 for idx, row in df_final.iterrows():
                     nom_cobas = str(row.get("Nom de l'analyse", "")).replace(" (Interprétation)", "").strip()
                     nom_mpl = str(row.get("Nom MPL", "")).strip()
