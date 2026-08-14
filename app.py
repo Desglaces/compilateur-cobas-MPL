@@ -4,6 +4,7 @@ import pypdf
 import re
 import io
 import math
+import difflib # <-- NOUVEAU : Bibliothèque de comparaison de texte
 
 try:
     import pytesseract
@@ -12,7 +13,7 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
-VERSION = "v5.24"
+VERSION = "v5.25"
 
 # =========================================================================
 # BASE DE DONNÉES INTERNE DES CODES ACN
@@ -148,7 +149,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
         "COI", "G/L", "MG/L", "U/L", "IU/L", "UI/L", "MIU/ML", "MUI/ML", "MUI/L",
         "MMOL/L", "MMOLE/L", "UMOLES/L", "UMOL/L", "PMOL/L", "NG/ML", "PG/ML", 
         "INDEX", "UI/ML", "IU/ML", "NG/DL", "UG/L", "MG/DL", "UG/DL", 
-        "µIU/ML", "µUI/ML", "UIU/ML", "UUI/ML", # Ajout des unités vues en erreur
+        "µIU/ML", "µUI/ML", "UIU/ML", "UUI/ML", 
         "-", "TEST", "NONREAC", "NON REACTIF"
     ]
     res_pattern = r'([<>]*\s*[0-9]+[\.\,]?[0-9]*[aA]?(?:\s*<Test|\s*>Test)?|<Test|>Test|\bTest\b|\\?sup|positif|négatif|negatif|douteux|réactif|reactif|nonreac|non\s*réactif|indétectable|indetectable|En\s*cours)'
@@ -160,15 +161,40 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
         vocabulaire_mpl = df_driver_temp[col_nom_driver].dropna().astype(str).str.strip().unique().tolist()
         vocabulaire_mpl.sort(key=len, reverse=True)
 
-    libellong_to_nom = {}
+    # --- NOUVEAU SYSTÈME DE CORRESPONDANCE INTELLIGENTE (FUZZY MATCHING) ---
+    libellong_list = []
     if csv_mpl_trans_bytes:
         df_trans = read_csv_safe(csv_mpl_trans_bytes)
         if 'LibelLong' in df_trans.columns and 'Nom' in df_trans.columns:
             for _, row in df_trans.iterrows():
-                ll = str(row['LibelLong']).strip().lower()
+                ll = str(row['LibelLong']).strip()
                 nom = str(row['Nom']).strip()
-                if ll and ll != 'nan':
-                    libellong_to_nom[ll] = nom
+                if ll and ll != 'nan' and nom and nom != 'nan':
+                    libellong_list.append((ll, nom))
+                    
+    def get_best_mpl_nom(test_name_pdf):
+        if not libellong_list: return test_name_pdf
+        tn = test_name_pdf.strip()
+        
+        # 1. Correspondance exacte sensible à la casse
+        for ll, n in libellong_list:
+            if ll == tn: return n
+            
+        # 2. Correspondance exacte insensible à la casse
+        for ll, n in libellong_list:
+            if ll.lower() == tn.lower(): return n
+            
+        # 3. Correspondance intelligente de proximité (Fuzzy matching)
+        best_n = tn
+        best_ratio = 0.0
+        for ll, n in libellong_list:
+            ratio = difflib.SequenceMatcher(None, tn.lower(), ll.lower()).ratio()
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_n = n
+        if best_ratio > 0.85: # Seuil de confiance élevé (85%)
+            return best_n
+        return tn
     
     for uploaded_file in uploaded_files:
         file_ext = uploaded_file.name.split('.')[-1].lower()
@@ -202,7 +228,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                                             current_id = m_bar.group(1)
                                             break
                         
-                        # CORRECTION v5.24 : Nettoyage STRICT des 5 chiffres de séquence si collé
+                        # Nettoyage STRICT des 5 chiffres de séquence si collé
                         if current_id and current_id.startswith("PV") and len(current_id) >= 15:
                             current_id = re.sub(r'\d{5}$', '', current_id)
                         
@@ -300,7 +326,8 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                             if any(test_name.lower().startswith(excl) for excl in exclusions): continue
                             if not re.search(r'[A-Za-zÀ-ÿ]', test_name): continue
                             
-                            test_name_final = libellong_to_nom.get(test_name.strip().lower(), test_name)
+                            # Traduction intelligente vers le code court MPL
+                            test_name_final = get_best_mpl_nom(test_name)
                             
                             res_unit_text = " ".join(parts[1:])
                             m_res = re.match(r'^'+res_pattern+r'(.*)', res_unit_text.strip(), re.IGNORECASE)
@@ -397,7 +424,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                         # Nettoyage strict de l'unité
                         unit = re.split(r'\s+(?:[0-9]|[\↑\↓\☒\个<>\~])', unit_raw)[0].strip() if unit_raw else ""
                         mpl_records.append({
-                            "Nom de l'analyse": test_name_trouve, "Numéro de tube": tube_id, "Résulat MPL": res, "Unité MPL": unit
+                            "Nom de l'analyse": get_best_mpl_nom(test_name_trouve), "Numéro de tube": tube_id, "Résulat MPL": res, "Unité MPL": unit
                         })
 
     df_c = pd.DataFrame(cobas_records) if cobas_records else pd.DataFrame(columns=["Nom de l'analyse", "Numéro de tube", "Module CPRO", "Résultat CPRO", "Unité CPRO"])
