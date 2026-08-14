@@ -4,7 +4,7 @@ import pypdf
 import re
 import io
 import math
-import difflib # <-- NOUVEAU : Bibliothèque de comparaison de texte
+import difflib
 
 try:
     import pytesseract
@@ -13,7 +13,7 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
-VERSION = "v5.25"
+VERSION = "v5.26"
 
 # =========================================================================
 # BASE DE DONNÉES INTERNE DES CODES ACN
@@ -23,23 +23,23 @@ MAPPING_ACN = {
     "ALB2": "20090", "ALP2": "20110", "ALTP2": "20140", "AMIK2": "20150",
     "AMPS2": "20162", "AMYL2": "20170", "APOAT": "20190", "APOBT": "20200",
     "ASLOT": "20210", "ASTP2": "20230", "B2MG": "20250", "BNZ2": "20281",
-    "BILD2": "20301", "BILT3": "20312", "C3C-2": "20320", "C4-2": "20330",
-    "CA2": "20341", "CARB4": "20351", "CERU": "20360", "CHE2": "20370",
-    "CHOL2-I": "20411", "CK": "20420", "CL": "29250", "CL-U": "29251",
-    "CO2-L": "20440", "COC2": "20451", "CREP2": "20461", "21500": "21500",
-    "CRP4": "20500", "ETOH2": "20560", "FERR4": "20570", "FRA": "20580",
-    "GENT2": "20591", "GGT-2": "20600", "GLUC3": "20631", "HAPT2": "20640",
-    "HCYS": "20700", "HDLC4": "20710", "IGA-2": "20720", "IGG-2": "20740",
-    "IGM-2": "20750", "IRON2": "20770", "K": "29240", "K-U": "29241",
-    "LACT2": "20791", "LDHI2": "20811", "LDLC3": "20820", "LI": "20840",
-    "LIPC": "20850", "LPA2": "20860", "MDN2": "20880", "MG2": "20891",
-    "NA-U": "29231", "NH3L2": "20940", "OPI2": "20952", "PHNO2": "20970",
-    "PHNY2": "20980", "PHOS2": "20990", "PHOS2 URINE": "20991", "PREA": "21010",
-    "RF-II": "21040", "THC2": "21071", "TP2": "21110", "TPUC3-U": "21122",
-    "TRIGL": "21130", "TRSF2": "21150", "UREAL-U": "21190", "UREAL": "21191",
-    "VANC3": "21211", "AU": "21170", "ACTH": "10206", "AFP": "10209",
-    "HBSAG 2": "10049", "AMHP": "10158", "ACCP": "10084",
-    "AHAVIGM": "10162", "AHAV 2": "10156", "AHBC 2": "10142",
+    "BILD2": "20301", "BILD2-J": "20301", "BILT3": "20312", "BILT-3": "20312", 
+    "C3C-2": "20320", "C4-2": "20330", "CA2": "20341", "CARB4": "20351", 
+    "CERU": "20360", "CHE2": "20370", "CHOL2-I": "20411", "CK": "20420", 
+    "CL": "29250", "CL-U": "29251", "CO2-L": "20440", "COC2": "20451", 
+    "CREP2": "20461", "21500": "21500", "CRP4": "20500", "ETOH2": "20560", 
+    "FERR4": "20570", "FRA": "20580", "GENT2": "20591", "GGT-2": "20600", 
+    "GLUC3": "20631", "HAPT2": "20640", "HCYS": "20700", "HDLC4": "20710", 
+    "IGA-2": "20720", "IGG-2": "20740", "IGM-2": "20750", "IRON2": "20770", 
+    "K": "29240", "K-U": "29241", "LACT2": "20791", "LDHI2": "20811", 
+    "LDLC3": "20820", "LI": "20840", "LIPC": "20850", "LPA2": "20860", 
+    "MDN2": "20880", "MG2": "20891", "NA-U": "29231", "NH3L2": "20940", 
+    "OPI2": "20952", "PHNO2": "20970", "PHNY2": "20980", "PHOS2": "20990", 
+    "PHOS2 URINE": "20991", "PREA": "21010", "RF-II": "21040", "THC2": "21071", 
+    "TP2": "21110", "TPUC3-U": "21122", "TRIGL": "21130", "TRSF2": "21150", 
+    "UREAL-U": "21190", "UREAL": "21191", "VANC3": "21211", "AU": "21170", 
+    "ACTH": "10206", "AFP": "10209", "HBSAG 2": "10049", "AMHP": "10158", 
+    "ACCP": "10084", "AHAVIGM": "10162", "AHAV 2": "10156", "AHBC 2": "10142",
     "ANTI-HBE (AHBE)": "10033", "A-HBS 2": "10179", "AHCV 2": "10189",
     "ANTI-HEV IGG": "10222", "ANTI-HEV IGM": "10223", "ATG": "10202",
     "ATSHR": "10174", "HCG-BETA": "10072", "B12 2": "10088",
@@ -161,7 +161,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
         vocabulaire_mpl = df_driver_temp[col_nom_driver].dropna().astype(str).str.strip().unique().tolist()
         vocabulaire_mpl.sort(key=len, reverse=True)
 
-    # --- NOUVEAU SYSTÈME DE CORRESPONDANCE INTELLIGENTE (FUZZY MATCHING) ---
+    # --- SYSTÈME DE CORRESPONDANCE INTELLIGENTE (FUZZY MATCHING) ---
     libellong_list = []
     if csv_mpl_trans_bytes:
         df_trans = read_csv_safe(csv_mpl_trans_bytes)
