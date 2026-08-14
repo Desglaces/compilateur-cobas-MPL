@@ -13,7 +13,7 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
-VERSION = "v5.27"
+VERSION = "v5.30"
 
 # =========================================================================
 # BASE DE DONNÉES INTERNE DES CODES ACN
@@ -90,8 +90,7 @@ def read_csv_safe(file_bytes):
 
 def clean_acn(val):
     s = str(val).strip()
-    if s.endswith('.0'):
-        return s[:-2]
+    if s.endswith('.0'): return s[:-2]
     return s
 
 def are_values_equivalent(v1, v2):
@@ -102,13 +101,10 @@ def are_values_equivalent(v1, v2):
         c1 = re.sub(r'[^\d\.\,\-]', '', s1).replace(',', '.')
         c2 = re.sub(r'[^\d\.\,\-]', '', s2).replace(',', '.')
         if not c1 or not c2: return False
-        
         f1, f2 = float(c1), float(c2)
         if abs(f1 - f2) < 1e-5: return True
-        
         d1 = len(c1.split('.')[1]) if '.' in c1 else 0
         d2 = len(c2.split('.')[1]) if '.' in c2 else 0
-        
         return abs(f1 - f2) <= 0.61 * (10 ** -min(d1, d2))
     except:
         return False
@@ -151,13 +147,13 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
     mpl_records = []
     
     mots_cles_interp = ["non réactif", "nonreac", "réactif", "reac", "douteux", "positif", "négatif"]
-    unites_fausses = [
+    unites_cobas = [
         "COI", "G/L", "MG/L", "U/L", "IU/L", "UI/L", "MIU/ML", "MUI/ML", "MUI/L",
         "MMOL/L", "MMOLE/L", "UMOLES/L", "UMOL/L", "PMOL/L", "NG/ML", "PG/ML", 
         "INDEX", "UI/ML", "IU/ML", "NG/DL", "UG/L", "MG/DL", "UG/DL", 
-        "µIU/ML", "µUI/ML", "UIU/ML", "UUI/ML", 
-        "-", "TEST", "NONREAC", "NON REACTIF"
+        "µIU/ML", "µUI/ML", "UIU/ML", "UUI/ML", "ΜIU/ML", "ΜUI/ML", "U/ML", "-"
     ]
+    mots_dechets = ["TEST", "NONREAC", "NON REACTIF"]
     res_pattern = r'([<>]*\s*[0-9]+[\.\,]?[0-9]*[aA]?(?:\s*<Test|\s*>Test)?|<Test|>Test|\bTest\b|\\?sup|positif|négatif|negatif|douteux|réactif|reactif|nonreac|non\s*réactif|indétectable|indetectable|En\s*cours)'
     
     vocabulaire_mpl = []
@@ -167,7 +163,6 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
         vocabulaire_mpl = df_driver_temp[col_nom_driver].dropna().astype(str).str.strip().unique().tolist()
         vocabulaire_mpl.sort(key=len, reverse=True)
 
-    # --- SYSTÈME DE CORRESPONDANCE INTELLIGENTE (FUZZY MATCHING) ---
     libellong_list = []
     if csv_mpl_trans_bytes:
         df_trans = read_csv_safe(csv_mpl_trans_bytes)
@@ -213,11 +208,14 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                     
                     for i, line in enumerate(lines):
                         line_clean = line.replace('|', ' ').strip()
+                        if not line_clean: continue
                         
                         # --- DÉTECTION DES ID COBAS ---
                         if "ID" in line_clean:
-                            m_id = re.search(r'ID\s*[:]?\s*([A-Za-z0-9_]+)', line_clean)
-                            if m_id and m_id.group(1).upper() not in ["ID", "RACK"]:
+                            # Ne capture que les vrais IDs (commence par PV ou suite de chiffres >= 5)
+                            # Ceci évite de capturer "utilisateur" dans les hauts de page
+                            m_id = re.search(r'ID\s*[:]?\s*(PV[A-Za-z0-9]+|\d{5,})', line_clean)
+                            if m_id:
                                 current_id = m_id.group(1)
                             else:
                                 for offset in [-2, -1, 1, 2]:
@@ -233,10 +231,27 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                             current_id = re.sub(r'\d{5}$', '', current_id)
                         
                         # --- DÉTECTION DES RÉSULTATS COBAS ---
+                        test_name, result, is_multiline = "", "", False
+                        
                         matches = list(re.finditer(r'\s+'+res_pattern+r'(?=\s|$)', line_clean, re.IGNORECASE))
-                        if matches and current_id:
+                        if matches:
                             last_match = matches[-1]
                             test_name = line_clean[:last_match.start()].strip()
+                            result = last_match.group(1).strip()
+                        else:
+                            pot_name = re.sub(r'^\+\s*', '', line_clean).strip()
+                            if re.match(r'^[A-Za-zÀ-ÿ0-9\-\_\.\/]+(?:\s+[A-Za-zÀ-ÿ0-9\-\_\.\/]+)*$', pot_name):
+                                for j in range(1, 4):
+                                    if i + j < len(lines):
+                                        nl = lines[i+j].replace('|', ' ').strip()
+                                        m_res = re.match(r'^'+res_pattern+r'(?=\s|$)', nl, re.IGNORECASE)
+                                        if m_res:
+                                            test_name = pot_name
+                                            result = m_res.group(1).strip()
+                                            is_multiline = True
+                                            break
+                                            
+                        if test_name and result and current_id:
                             test_name = re.sub(r'^\+\s*', '', test_name).strip()
                             test_name_upper = test_name.upper()
                             
@@ -246,49 +261,59 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                             if "COBAS" in test_name_upper or "SYSTEM" in test_name_upper: is_waste = True
                             if re.match(r'^(R[123]|SI|SI2|S12)\b', test_name_upper): is_waste = True
                             if test_name_upper.startswith("SEQUENCE") or test_name_upper.startswith("SÉQUENCE"): is_waste = True
-                            for u in unites_fausses:
+                            if re.match(r'^[cCeE]\d-\d-[A-Za-z0-9]', test_name_upper): is_waste = True
+                            for u in unites_cobas + mots_dechets:
                                 if test_name_upper == u or test_name_upper.startswith(u + " ") or test_name_upper.startswith(u + "-"):
                                     is_waste = True
                                     break
                             
                             if not is_waste:
-                                result = last_match.group(1).strip()
                                 unit, module = "", ""
                                 interpretation_text = None
                                 
-                                for j in range(1, 4):
+                                for j in range(1, 5 if is_multiline else 4):
                                     if i + j < len(lines):
                                         next_line = lines[i+j].replace('|', ' ').strip()
+                                        
+                                        if is_multiline and next_line == result: continue
                                         
                                         # Sécurité : Si la ligne suivante est un VRAI test, on s'arrête.
                                         next_matches = list(re.finditer(r'\s+'+res_pattern+r'(?=\s|$)', next_line, re.IGNORECASE))
                                         if next_matches:
-                                            next_test_name = next_line[:next_matches[-1].start()].strip()
-                                            next_test_name_upper = re.sub(r'^\+\s*', '', next_test_name).strip().upper()
-                                            is_next_waste = False
-                                            for u in unites_fausses:
-                                                if next_test_name_upper == u or next_test_name_upper.startswith(u + " ") or next_test_name_upper.startswith(u + "-"):
-                                                    is_next_waste = True
-                                                    break
-                                            if not is_next_waste and "COBAS" not in next_test_name_upper and "SYSTEM" not in next_test_name_upper:
-                                                break
+                                            ntn = next_line[:next_matches[-1].start()].strip()
+                                            ntn_upper = re.sub(r'^\+\s*', '', ntn).strip().upper()
+                                            iw = False
+                                            if "COBAS" in ntn_upper or "SYSTEM" in ntn_upper: iw = True
+                                            if re.match(r'^(R[123]|SI|SI2|S12)\b', ntn_upper): iw = True
+                                            if re.match(r'^[cCeE]\d-\d-[A-Za-z0-9]', ntn_upper): iw = True
+                                            for u in unites_cobas + mots_dechets:
+                                                if ntn_upper == u or ntn_upper.startswith(u + " ") or ntn_upper.startswith(u + "-"): iw = True; break
+                                            if not iw and ntn_upper: break
                                                 
-                                        m_unit = re.match(r'^([a-zA-Z\/\%µ]+)\s+([A-Za-z0-9\-\_]+)', next_line)
+                                        m_unit = re.match(r'^([a-zA-Z\/\%µΜ\-]+)(?:\s+([A-Za-z0-9\-\_]+))?', next_line)
                                         if m_unit and not unit:
-                                            unit = m_unit.group(1).strip()
-                                            module_raw = m_unit.group(2).strip()
-                                            
-                                            if module_raw.isdigit():
-                                                module = str(int(module_raw) - 1)
+                                            pot_unit = m_unit.group(1).strip()
+                                            if pot_unit.upper() in unites_cobas or '/' in pot_unit or pot_unit.upper() == 'INDEX':
+                                                unit = pot_unit
+                                                if not module and m_unit.group(2):
+                                                    module_raw = m_unit.group(2).strip()
+                                                    if module_raw.isdigit(): module = str(int(module_raw) - 1)
+                                                    elif "-" in module_raw:
+                                                        parts = module_raw.split("-")
+                                                        for k in range(len(parts)):
+                                                            if parts[k].isdigit(): parts[k] = str(int(parts[k]) - 1); break
+                                                        module = "-".join(parts)
+                                                    else: module = module_raw
+                                                    
+                                        if not module and re.match(r'^[cCeE]\d-\d-[A-Za-z0-9]', next_line):
+                                            module_raw = next_line
+                                            if module_raw.isdigit(): module = str(int(module_raw) - 1)
                                             elif "-" in module_raw:
                                                 parts = module_raw.split("-")
                                                 for k in range(len(parts)):
-                                                    if parts[k].isdigit():
-                                                        parts[k] = str(int(parts[k]) - 1)
-                                                        break
+                                                    if parts[k].isdigit(): parts[k] = str(int(parts[k]) - 1); break
                                                 module = "-".join(parts)
-                                            else:
-                                                module = module_raw
+                                            else: module = module_raw
                                                 
                                         next_line_clean = next_line.lower()
                                         if any(interp in next_line_clean for interp in mots_cles_interp) and "réanalyse" not in next_line_clean:
@@ -399,7 +424,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                         if not pot_name or not re.search(r'[A-Za-z]', pot_name): is_waste = True
                         if any(pot_name.lower().startswith(excl) for excl in exclusions): is_waste = True
                         if "COBAS" in pot_name.upper() or "SYSTEM" in pot_name.upper(): is_waste = True
-                        for u in unites_fausses:
+                        for u in unites_cobas + mots_dechets:
                             if pot_name.upper() == u or pot_name.upper().startswith(u + " ") or pot_name.upper().startswith(u + "-"):
                                 is_waste = True
                                 break
@@ -547,9 +572,7 @@ if st.session_state.etape >= 2:
                 for col in df_combined.columns:
                     if col in df_final.columns: df_final[col] = df_combined[col]
 
-                # Application du nettoyeur à tout le dataframe
                 df_driver[col_acn_driver] = df_driver[col_acn_driver].apply(clean_acn)
-                
                 for idx, row in df_final.iterrows():
                     nom_cobas = str(row.get("Nom de l'analyse", "")).replace(" (Interprétation)", "").strip()
                     nom_mpl = str(row.get("Nom MPL", "")).strip()
