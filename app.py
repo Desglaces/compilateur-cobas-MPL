@@ -13,7 +13,7 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
-VERSION = "v5.30"
+VERSION = "v5.31"
 
 # =========================================================================
 # BASE DE DONNÉES INTERNE DES CODES ACN
@@ -28,16 +28,16 @@ MAPPING_ACN = {
     "CERU": "20360", "CHE2": "20370", "CHOL2-I": "20411", "CK": "20420", 
     "CL": "29250", "CL-U": "29251", "CO2-L": "20440", "COC2": "20451", 
     "CREP2": "20461", "21500": "21500", "CRP4": "20500", "ETOH2": "20560", 
-    "FERR4": "20570", "FRA": "20580", "GENT2": "20591", "GGT-2": "20600", 
+    "FERR4": "20570", "FRA": "20580", "GENT2": "20591", "GGT2-S": "20600", 
     "GLUC3": "20631", "HAPT2": "20640", "HCYS": "20700", "HDLC4": "20710", 
     "IGA-2": "20720", "IGG-2": "20740", "IGM-2": "20750", "IRON2": "20770", 
     "K": "29240", "K-U": "29241", "LACT2": "20791", "LDHI2": "20811", 
-    "LDLC3": "20820", "LI": "20840", "LIPC": "20850", "LPA2": "20860", 
+    "LDLC3": "20820", "LI": "20840", "LIP": "20850", "LPA2": "20860", 
     "MDN2": "20880", "MG2": "20891", "NA-U": "29231", "NH3L2": "20940", 
     "OPI2": "20952", "PHNO2": "20970", "PHNY2": "20980", "PHOS2": "20990", 
     "PHOS2 URINE": "20991", "PREA": "21010", "RF-II": "21040", "THC2": "21071", 
     "TP2": "21110", "TPUC3-U": "21122", "TRIGL": "21130", "TRSF2": "21150", 
-    "UREAL-U": "21190", "UREAL": "21191", "VANC3": "21211", "AU": "21170", 
+    "UREAL-U": "21190", "UREAL": "21191", "VANC3": "21211", "UA2": "21170", 
     "ACTH": "10206", "AFP": "10209", "HBSAG 2": "10049", "AMHP": "10158", 
     "ACCP": "10084", "AHAVIGM": "10162", "AHAV 2": "10156", "AHBC 2": "10142",
     "ANTI-HBE (AHBE)": "10033", "A-HBS 2": "10179", "AHCV 2": "10189",
@@ -213,7 +213,6 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                         # --- DÉTECTION DES ID COBAS ---
                         if "ID" in line_clean:
                             # Ne capture que les vrais IDs (commence par PV ou suite de chiffres >= 5)
-                            # Ceci évite de capturer "utilisateur" dans les hauts de page
                             m_id = re.search(r'ID\s*[:]?\s*(PV[A-Za-z0-9]+|\d{5,})', line_clean)
                             if m_id:
                                 current_id = m_id.group(1)
@@ -486,7 +485,7 @@ if st.session_state.etape >= 2:
     df_mpl = st.session_state.df_mpl
     analyses_cobas = df_cobas["Nom de l'analyse"].dropna().unique()
     
-    analyses_mpl = ["🔴 -- Aucune correspondance --"] + list(df_mpl["Nom de l'analyse"].dropna().unique())
+    analyses_mpl = ["🔴 -- Aucune correspondance --", "❌ -- Ignorer cette analyse --"] + list(df_mpl["Nom de l'analyse"].dropna().unique())
     
     df_driver = read_csv_safe(st.session_state.csv_file)
     col_acn_driver = [c for c in df_driver.columns if "Code ACN" in c][0]
@@ -519,6 +518,7 @@ if st.session_state.etape >= 2:
             with st.spinner("Fusion intelligente en cours..."):
                 df_c, df_m = df_cobas.copy(), df_mpl.copy()
                 used_mpl_indices = set()
+                indices_to_drop = []
                 
                 df_c["Nom MPL"] = ""
                 df_c["Résulat MPL"], df_c["Unité MPL"] = "", ""
@@ -526,7 +526,7 @@ if st.session_state.etape >= 2:
                 def match_tubes(t_cobas, t_mpl):
                     tc, tm = str(t_cobas).strip(), str(t_mpl).strip()
                     if tc == tm: return True
-                    if len(tc) == len(tm) + 2 and (tc[2:] == tm or tc[:-2] == tm): return True
+                    if len(tc) == len(tc) + 2 and (tc[2:] == tm or tc[:-2] == tm): return True
                     return False
                 
                 for idx, row in df_c.iterrows():
@@ -534,6 +534,10 @@ if st.session_state.etape >= 2:
                     m_test_choisi = mappings.get(c_test)
                     merged = False
                     
+                    if m_test_choisi == "❌ -- Ignorer cette analyse --":
+                        indices_to_drop.append(idx)
+                        continue
+                        
                     if m_test_choisi and m_test_choisi != "🔴 -- Aucune correspondance --":
                         match = df_m[(df_m["Numéro de tube"].apply(lambda m: match_tubes(tube, m))) & (df_m["Nom de l'analyse"] == m_test_choisi)]
                         match = match[~match.index.isin(used_mpl_indices)]
@@ -553,6 +557,9 @@ if st.session_state.etape >= 2:
                                 df_c.at[idx, "Unité MPL"] = m_row["Unité MPL"]
                                 used_mpl_indices.add(m_idx)
                                 break
+
+                # Suppression des lignes ignorées
+                df_c = df_c.drop(index=indices_to_drop)
 
                 def get_12_digit(mpl_tube, df_cobas_ref):
                     matches = df_cobas_ref[df_cobas_ref["Numéro de tube"].apply(lambda c: match_tubes(c, mpl_tube))]
