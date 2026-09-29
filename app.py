@@ -14,30 +14,32 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
-VERSION = "v5.37"
+VERSION = "v5.39"
 
 # =========================================================================
 # BASE DE DONNÉES INTERNE DES CODES ACN
 # =========================================================================
 MAPPING_ACN = {
     "AAGP2": "20020", "AAT2": "20030", "ACET2": "20042", "ALBT2U": "20061",
-    "ALB2": "20090", "ALP2": "20110", "ALTP2": "20140", "AMIK2": "20150",
-    "AMPS2": "20162", "AMYL2": "20170", "APOAT": "20190", "APOBT": "20200",
-    "ASLOT": "20210", "ASTP2": "20230", "B2MG": "20250", "BNZ2": "20281",
-    "BILD2": "20301", "BILD2-J": "20301", "BILT3": "20312", "BILT-3": "20312", 
-    "C3C-2": "20320", "C4-2": "20330", "CA2": "20341", "CARB4": "20351", 
-    "CERU": "20360", "CHE2": "20370", "CHOL2-I": "20411", "CK": "20420", 
-    "CL": "29250", "CL-U": "29251", "CO2-L": "20440", "COC2": "20451", 
-    "CREP2": "20461", "21500": "21500", "CRP4": "20500", "ETOH2": "20560", 
+    "ALB2": "20090", "ALB2-G": "20090", "ALP2": "20110", "ALTP2": "20140", 
+    "AMIK2": "20150", "AMPS2": "20162", "AMYL2": "20170", "APOAT": "20190", 
+    "APOBT": "20200", "ASLOT": "20210", "ASTP2": "20230", "B2MG": "20250", 
+    "BNZ2": "20281", "BILD2": "20301", "BILD2-J": "20301", "BILT3": "20312", 
+    "BILT-3": "20312", "C3C-2": "20320", "C4-2": "20330", "CA2": "20341", 
+    "CARB4": "20351", "CERU": "20360", "CHE2": "20370", "CHOL2-I": "20411", 
+    "CHOL2-1": "20411", "CHOL2": "20411", "CK": "20420", "CL": "29250", 
+    "CL-U": "29251", "CO2-L": "20440", "COC2": "20451", "CREP2": "20461", 
+    "CREP2U": "20461", "21500": "21500", "CRP4": "20500", "ETOH2": "20560", 
     "FERR4": "20570", "FRA": "20580", "GENT2": "20591", "GGT2-S": "20600", 
-    "GLUC3": "20631", "HAPT2": "20640", "HCYS": "20700", "HDLC4": "20710", 
-    "IGA-2": "20720", "IGG-2": "20740", "IGM-2": "20750", "IRON2": "20770", 
-    "K": "29240", "K-U": "29241", "LACT2": "20791", "LDHI2": "20811", 
-    "LDLC3": "20820", "LI": "20840", "LIP": "20850", "LPA2": "20860", 
-    "MDN2": "20880", "MG2": "20891", "NA-U": "29231", "NH3L2": "20940", 
-    "OPI2": "20952", "PHNO2": "20970", "PHNY2": "20980", "PHOS2": "20990", 
-    "PHOS2 URINE": "20991", "PREA": "21010", "RF-II": "21040", "THC2": "21071", 
-    "TP2": "21110", "TPUC3-U": "21122", "TRIGL": "21130", "TRSF2": "21150", 
+    "GGT2-1": "20600", "GLUC3": "20631", "GLUC3U": "20631", "HAPT2": "20640", 
+    "HCYS": "20700", "HDLC4": "20710", "IGA-2": "20720", "IGG-2": "20740", 
+    "IGM-2": "20750", "IRON2": "20770", "K": "29240", "K-U": "29241", 
+    "LACT2": "20791", "LDHI2": "20811", "LDH12P": "20811", "LDLC3": "20820", 
+    "LI": "20840", "LIP": "20850", "LPA2": "20860", "MDN2": "20880", 
+    "MG2": "20891", "NA-U": "29231", "NH3L2": "20940", "OPI2": "20952", 
+    "PHNO2": "20970", "PHNY2": "20980", "PHOS2": "20990", "PHOS2 URINE": "20991", 
+    "PREA": "21010", "RF-II": "21040", "THC2": "21071", "TP2": "21110", 
+    "TPUC3-U": "21122", "TPU3": "21122", "TRIGL": "21130", "TRSF2": "21150", 
     "UREAL-U": "21190", "UREAL": "21191", "VANC3": "21211", "UA2": "21170", 
     "ACTH": "10206", "AFP": "10209", "HBSAG 2": "10049", "AMHP": "10158", 
     "ACCP": "10084", "AHAVIGM": "10162", "AHAV 2": "10156", "AHBC 2": "10142",
@@ -95,7 +97,7 @@ def clean_acn(val):
     return s
 
 def normalize_string(s):
-    if not isinstance(s, str): return ""
+    if pd.isna(s) or not isinstance(s, str): return ""
     return unicodedata.normalize('NFKD', s).encode('ASCII', 'ignore').decode('utf-8').lower().strip()
 
 def are_values_equivalent(v1, v2):
@@ -185,15 +187,15 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
         tn = test_name_pdf.strip()
         tn_norm = normalize_string(tn)
         
-        # 1. Correspondance exacte sensible à la casse
+        # 1. Correspondance exacte
         for ll, n in libellong_list:
-            if ll == tn: return n
+            if ll.strip() == tn: return n
             
-        # 2. Correspondance exacte insensible à la casse
+        # 2. Correspondance insensible à la casse
         for ll, n in libellong_list:
-            if ll.lower() == tn.lower(): return n
+            if ll.strip().lower() == tn.lower(): return n
             
-        # 3. Correspondance exacte insensible aux accents
+        # 3. Correspondance insensible aux accents (Lissage)
         for ll, n in libellong_list:
             if normalize_string(ll) == tn_norm: return n
             
@@ -292,6 +294,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                                         
                                         if is_multiline and next_line == result: continue
                                         
+                                        # Sécurité : Si la ligne suivante est un VRAI test, on s'arrête.
                                         next_matches = list(re.finditer(r'\s+'+res_pattern+r'(?=\s|$)', next_line, re.IGNORECASE))
                                         if next_matches:
                                             ntn = next_line[:next_matches[-1].start()].strip()
@@ -536,11 +539,15 @@ if st.session_state.etape >= 2:
                     if ll and ll != 'nan' and nom and nom != 'nan':
                         nom_to_libellong[nom] = ll
         
+        # --- NOUVEAU SYSTEME DE MEMOIRE MULTIPLE POUR LE DRIVER CSV ---
         acn_to_mpl = {}
         for _, row in df_driver.iterrows():
             acn = clean_acn(row[col_acn_driver])
             nom = str(row[col_nom_driver]).strip()
-            if acn and acn != 'nan': acn_to_mpl[acn] = nom
+            if acn and acn != 'nan':
+                if acn not in acn_to_mpl:
+                    acn_to_mpl[acn] = []
+                acn_to_mpl[acn].append(nom)
     
         if "user_mapping" not in st.session_state:
             st.session_state.user_mapping = {}
@@ -551,19 +558,29 @@ if st.session_state.etape >= 2:
                 nom_recherche = c_test.replace(" (Interprétation)", "").strip()
                 acn_trouve = get_acn_from_mapping(nom_recherche)
                 if acn_trouve:
-                    mpl_attendu = acn_to_mpl.get(acn_trouve)
-                    if mpl_attendu and mpl_attendu in analyses_mpl:
-                        default_match = mpl_attendu
+                    mpl_attendus = acn_to_mpl.get(acn_trouve, [])
+                    for att in mpl_attendus:
+                        if att in analyses_mpl:
+                            default_match = att
+                            break
                 st.session_state.user_mapping[c_test] = default_match
     
         def update_mapping(test_name):
             st.session_state.user_mapping[test_name] = st.session_state[f"widget_{test_name}"]
     
-        filtre = st.radio(
-            "Filtre d'affichage des analyses :", 
-            ["Toutes", "🔴 À vérifier (Aucune correspondance)", "✅ Validées", "❌ Ignorées"], 
-            horizontal=True
-        )
+        col_f1, col_f2 = st.columns([3, 1])
+        with col_f1:
+            filtre = st.radio(
+                "Filtre d'affichage des analyses :", 
+                ["Toutes", "🔴 À vérifier (Aucune correspondance)", "✅ Validées", "❌ Ignorées"], 
+                horizontal=True
+            )
+        with col_f2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🔄 Recalculer les liens automatiques", use_container_width=True):
+                if "user_mapping" in st.session_state:
+                    del st.session_state["user_mapping"]
+                st.rerun()
         
         filtered_c_tests = []
         for c_test in analyses_cobas:
@@ -617,7 +634,6 @@ if st.session_state.etape >= 2:
                 
                 for idx, row in df_c.iterrows():
                     c_test, tube = row["Nom de l'analyse"], str(row["Numéro de tube"])
-                    # Lecture depuis le coffre-fort de mémoire
                     m_test_choisi = st.session_state.user_mapping.get(c_test, "🔴 -- Aucune correspondance --")
                     merged = False
                     
