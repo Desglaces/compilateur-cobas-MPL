@@ -5,6 +5,7 @@ import re
 import io
 import math
 import difflib
+import unicodedata
 
 try:
     import pytesseract
@@ -13,7 +14,7 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
-VERSION = "v5.36"
+VERSION = "v5.37"
 
 # =========================================================================
 # BASE DE DONNÉES INTERNE DES CODES ACN
@@ -92,6 +93,10 @@ def clean_acn(val):
     s = str(val).strip()
     if s.endswith('.0'): return s[:-2]
     return s
+
+def normalize_string(s):
+    if not isinstance(s, str): return ""
+    return unicodedata.normalize('NFKD', s).encode('ASCII', 'ignore').decode('utf-8').lower().strip()
 
 def are_values_equivalent(v1, v2):
     s1, s2 = str(v1).strip().lower(), str(v2).strip().lower()
@@ -178,14 +183,25 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
     def get_best_mpl_nom(test_name_pdf):
         if not libellong_list: return test_name_pdf
         tn = test_name_pdf.strip()
+        tn_norm = normalize_string(tn)
+        
+        # 1. Correspondance exacte sensible à la casse
         for ll, n in libellong_list:
             if ll == tn: return n
+            
+        # 2. Correspondance exacte insensible à la casse
         for ll, n in libellong_list:
             if ll.lower() == tn.lower(): return n
+            
+        # 3. Correspondance exacte insensible aux accents
+        for ll, n in libellong_list:
+            if normalize_string(ll) == tn_norm: return n
+            
+        # 4. Correspondance intelligente (Fuzzy matching)
         best_n = tn
         best_ratio = 0.0
         for ll, n in libellong_list:
-            ratio = difflib.SequenceMatcher(None, tn.lower(), ll.lower()).ratio()
+            ratio = difflib.SequenceMatcher(None, tn_norm, normalize_string(ll)).ratio()
             if ratio > best_ratio:
                 best_ratio = ratio
                 best_n = n
@@ -213,6 +229,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                         line_clean = line.replace('|', ' ').strip()
                         if not line_clean: continue
                         
+                        # --- DÉTECTION DES ID COBAS ---
                         if "ID" in line_clean:
                             m_id = re.search(r'ID\s*[:]?\s*(PV[A-Za-z0-9]+|\d{5,})', line_clean)
                             if m_id:
@@ -229,6 +246,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                         if current_id and len(current_id) >= 15:
                             current_id = re.sub(r'\d{5}$', '', current_id)
                         
+                        # --- DÉTECTION DES RÉSULTATS COBAS ---
                         test_name, result, is_multiline = "", "", False
                         
                         matches = list(re.finditer(r'\s+'+res_pattern+r'(?=\s|$)', line_clean, re.IGNORECASE))
@@ -599,6 +617,7 @@ if st.session_state.etape >= 2:
                 
                 for idx, row in df_c.iterrows():
                     c_test, tube = row["Nom de l'analyse"], str(row["Numéro de tube"])
+                    # Lecture depuis le coffre-fort de mémoire
                     m_test_choisi = st.session_state.user_mapping.get(c_test, "🔴 -- Aucune correspondance --")
                     merged = False
                     
