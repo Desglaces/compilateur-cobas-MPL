@@ -13,7 +13,7 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
-VERSION = "v5.31"
+VERSION = "v5.32"
 
 # =========================================================================
 # BASE DE DONNÉES INTERNE DES CODES ACN
@@ -212,7 +212,6 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                         
                         # --- DÉTECTION DES ID COBAS ---
                         if "ID" in line_clean:
-                            # Ne capture que les vrais IDs (commence par PV ou suite de chiffres >= 5)
                             m_id = re.search(r'ID\s*[:]?\s*(PV[A-Za-z0-9]+|\d{5,})', line_clean)
                             if m_id:
                                 current_id = m_id.group(1)
@@ -225,8 +224,8 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                                             current_id = m_bar.group(1)
                                             break
                         
-                        # Nettoyage STRICT des 5 chiffres de séquence si collé
-                        if current_id and current_id.startswith("PV") and len(current_id) >= 15:
+                        # --- CORRECTION V5.32 : Suppression universelle des 5 chiffres finaux de rack ---
+                        if current_id and len(current_id) >= 15:
                             current_id = re.sub(r'\d{5}$', '', current_id)
                         
                         # --- DÉTECTION DES RÉSULTATS COBAS ---
@@ -526,7 +525,7 @@ if st.session_state.etape >= 2:
                 def match_tubes(t_cobas, t_mpl):
                     tc, tm = str(t_cobas).strip(), str(t_mpl).strip()
                     if tc == tm: return True
-                    if len(tc) == len(tc) + 2 and (tc[2:] == tm or tc[:-2] == tm): return True
+                    if len(tc) == len(tm) + 2 and (tc[2:] == tm or tc[:-2] == tm): return True
                     return False
                 
                 for idx, row in df_c.iterrows():
