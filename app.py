@@ -14,7 +14,7 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
-VERSION = "v5.39"
+VERSION = "v5.40"
 
 # =========================================================================
 # BASE DE DONNÉES INTERNE DES CODES ACN
@@ -187,19 +187,15 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
         tn = test_name_pdf.strip()
         tn_norm = normalize_string(tn)
         
-        # 1. Correspondance exacte
         for ll, n in libellong_list:
             if ll.strip() == tn: return n
             
-        # 2. Correspondance insensible à la casse
         for ll, n in libellong_list:
             if ll.strip().lower() == tn.lower(): return n
             
-        # 3. Correspondance insensible aux accents (Lissage)
         for ll, n in libellong_list:
             if normalize_string(ll) == tn_norm: return n
             
-        # 4. Correspondance intelligente (Fuzzy matching)
         best_n = tn
         best_ratio = 0.0
         for ll, n in libellong_list:
@@ -294,7 +290,6 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                                         
                                         if is_multiline and next_line == result: continue
                                         
-                                        # Sécurité : Si la ligne suivante est un VRAI test, on s'arrête.
                                         next_matches = list(re.finditer(r'\s+'+res_pattern+r'(?=\s|$)', next_line, re.IGNORECASE))
                                         if next_matches:
                                             ntn = next_line[:next_matches[-1].start()].strip()
@@ -539,7 +534,6 @@ if st.session_state.etape >= 2:
                     if ll and ll != 'nan' and nom and nom != 'nan':
                         nom_to_libellong[nom] = ll
         
-        # --- NOUVEAU SYSTEME DE MEMOIRE MULTIPLE POUR LE DRIVER CSV ---
         acn_to_mpl = {}
         for _, row in df_driver.iterrows():
             acn = clean_acn(row[col_acn_driver])
@@ -626,10 +620,11 @@ if st.session_state.etape >= 2:
                 df_c["Nom MPL"] = ""
                 df_c["Résulat MPL"], df_c["Unité MPL"] = "", ""
                 
-                def match_tubes(t_cobas, t_mpl):
+                def match_tubes_correct(t_cobas, t_mpl):
                     tc, tm = str(t_cobas).strip(), str(t_mpl).strip()
                     if tc == tm: return True
-                    if len(tc) == len(tc) + 2 and (tc[2:] == tm or tc[:-2] == tm): return True
+                    if len(tc) == len(tm) + 2 and (tc[2:] == tm or tc[:-2] == tm): return True
+                    if len(tm) == len(tc) + 2 and (tm[2:] == tc or tm[:-2] == tc): return True
                     return False
                 
                 for idx, row in df_c.iterrows():
@@ -642,7 +637,7 @@ if st.session_state.etape >= 2:
                         continue
                         
                     if m_test_choisi and m_test_choisi != "🔴 -- Aucune correspondance --":
-                        match = df_m[(df_m["Numéro de tube"].apply(lambda m: match_tubes(tube, m))) & (df_m["Nom de l'analyse"] == m_test_choisi)]
+                        match = df_m[(df_m["Numéro de tube"].apply(lambda m: match_tubes_correct(tube, m))) & (df_m["Nom de l'analyse"] == m_test_choisi)]
                         match = match[~match.index.isin(used_mpl_indices)]
                         if not match.empty:
                             df_c.at[idx, "Nom MPL"] = match.iloc[0]["Nom de l'analyse"]
@@ -652,7 +647,7 @@ if st.session_state.etape >= 2:
                             merged = True
                     
                     if not merged:
-                        potential_m = df_m[(df_m["Numéro de tube"].apply(lambda m: match_tubes(tube, m))) & (~df_m.index.isin(used_mpl_indices))]
+                        potential_m = df_m[(df_m["Numéro de tube"].apply(lambda m: match_tubes_correct(tube, m))) & (~df_m.index.isin(used_mpl_indices))]
                         for m_idx, m_row in potential_m.iterrows():
                             if are_values_equivalent(row["Résultat CPRO"], m_row["Résulat MPL"]):
                                 df_c.at[idx, "Nom MPL"] = m_row["Nom de l'analyse"]
@@ -664,7 +659,7 @@ if st.session_state.etape >= 2:
                 df_c = df_c.drop(index=indices_to_drop)
     
                 def get_12_digit(mpl_tube, df_cobas_ref):
-                    matches = df_cobas_ref[df_cobas_ref["Numéro de tube"].apply(lambda c: match_tubes(c, mpl_tube))]
+                    matches = df_cobas_ref[df_cobas_ref["Numéro de tube"].apply(lambda c: match_tubes_correct(c, mpl_tube))]
                     if not matches.empty: return str(matches.iloc[0]["Numéro de tube"])
                     return str(mpl_tube) + "00" if len(str(mpl_tube)) == 10 else str(mpl_tube)
     
