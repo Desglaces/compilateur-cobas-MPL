@@ -13,7 +13,7 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
-VERSION = "v5.32"
+VERSION = "v5.33"
 
 # =========================================================================
 # BASE DE DONNÉES INTERNE DES CODES ACN
@@ -212,6 +212,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                         
                         # --- DÉTECTION DES ID COBAS ---
                         if "ID" in line_clean:
+                            # Ne capture que les vrais IDs (commence par PV ou suite de chiffres >= 5)
                             m_id = re.search(r'ID\s*[:]?\s*(PV[A-Za-z0-9]+|\d{5,})', line_clean)
                             if m_id:
                                 current_id = m_id.group(1)
@@ -224,8 +225,8 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                                             current_id = m_bar.group(1)
                                             break
                         
-                        # --- CORRECTION V5.32 : Suppression universelle des 5 chiffres finaux de rack ---
-                        if current_id and len(current_id) >= 15:
+                        # Nettoyage STRICT des 5 chiffres de séquence si collé
+                        if current_id and current_id.startswith("PV") and len(current_id) >= 15:
                             current_id = re.sub(r'\d{5}$', '', current_id)
                         
                         # --- DÉTECTION DES RÉSULTATS COBAS ---
@@ -466,19 +467,25 @@ with col_b:
 
 if uploaded_files and uploaded_csv:
     if st.button("📥 Extraire les données des fichiers"):
+        # Effacement des anciens choix de menu déroulant pour repartir à zéro
+        for k in list(st.session_state.keys()):
+            if k.startswith("map_"):
+                del st.session_state[k]
+                
         with st.spinner("Lecture et analyse intelligente en cours..."):
             csv_mpl_bytes = uploaded_csv_mpl.getvalue() if uploaded_csv_mpl else None
             df_cobas, df_mpl = process_files(uploaded_files, uploaded_csv.getvalue(), csv_mpl_bytes)
             st.session_state.df_cobas = df_cobas
             st.session_state.df_mpl = df_mpl
             st.session_state.csv_file = uploaded_csv.getvalue() 
+            st.session_state.csv_mpl_bytes = csv_mpl_bytes
             st.session_state.etape = 2
             st.rerun()
 
 if st.session_state.etape >= 2:
     st.divider()
     st.subheader("Étape 2 : Correspondance des analyses")
-    st.info("🪄 **L'outil a pré-rempli les menus déroulants !** Les tests sans correspondance sont marqués par un 🔴.")
+    st.info("🪄 **L'outil a pré-rempli les menus déroulants !** Modifiez-les si besoin.")
     
     df_cobas = st.session_state.df_cobas
     df_mpl = st.session_state.df_mpl
@@ -490,115 +497,156 @@ if st.session_state.etape >= 2:
     col_acn_driver = [c for c in df_driver.columns if "Code ACN" in c][0]
     col_nom_driver = [c for c in df_driver.columns if "Nom de l" in c][0]
     
+    # Création du dictionnaire Nom Court -> Libellé Long pour affichage
+    nom_to_libellong = {}
+    if st.session_state.csv_mpl_bytes:
+        df_trans = read_csv_safe(st.session_state.csv_mpl_bytes)
+        if 'LibelLong' in df_trans.columns and 'Nom' in df_trans.columns:
+            for _, row in df_trans.iterrows():
+                ll = str(row['LibelLong']).strip()
+                nom = str(row['Nom']).strip()
+                if ll and ll != 'nan' and nom and nom != 'nan':
+                    nom_to_libellong[nom] = ll
+    
     acn_to_mpl = {}
     for _, row in df_driver.iterrows():
         acn = clean_acn(row[col_acn_driver])
         nom = str(row[col_nom_driver]).strip()
         if acn and acn != 'nan': acn_to_mpl[acn] = nom
     
-    with st.form("mapping_form"):
-        col1, col2 = st.columns(2)
-        mappings = {}
-        for i, c_test in enumerate(analyses_cobas):
-            default_idx = 0
+    # Initialisation des choix par défaut en mémoire
+    for c_test in analyses_cobas:
+        if f"map_{c_test}" not in st.session_state:
+            default_match = "🔴 -- Aucune correspondance --"
             nom_recherche = c_test.replace(" (Interprétation)", "").strip()
             acn_trouve = get_acn_from_mapping(nom_recherche)
             if acn_trouve:
                 mpl_attendu = acn_to_mpl.get(acn_trouve)
                 if mpl_attendu and mpl_attendu in analyses_mpl:
-                    default_idx = analyses_mpl.index(mpl_attendu)
+                    default_match = mpl_attendu
+            st.session_state[f"map_{c_test}"] = default_match
+
+    # --- NOUVEAU FILTRE INTERACTIF ---
+    filtre = st.radio(
+        "Filtre d'affichage des analyses :", 
+        ["Toutes", "🔴 À vérifier (Aucune correspondance)", "✅ Validées", "❌ Ignorées"], 
+        horizontal=True
+    )
+    
+    filtered_c_tests = []
+    for c_test in analyses_cobas:
+        current_val = st.session_state[f"map_{c_test}"]
+        if filtre == "Toutes":
+            filtered_c_tests.append(c_test)
+        elif filtre == "🔴 À vérifier (Aucune correspondance)" and current_val == "🔴 -- Aucune correspondance --":
+            filtered_c_tests.append(c_test)
+        elif filtre == "✅ Validées" and current_val not in ["🔴 -- Aucune correspondance --", "❌ -- Ignorer cette analyse --"]:
+            filtered_c_tests.append(c_test)
+        elif filtre == "❌ Ignorées" and current_val == "❌ -- Ignorer cette analyse --":
+            filtered_c_tests.append(c_test)
             
-            with (col1 if i % 2 == 0 else col2): 
-                mappings[c_test] = st.selectbox(f"🔬 Cobas : **{c_test}**", options=analyses_mpl, index=default_idx, key=f"map_{c_test}")
-        
-        submit_mapping = st.form_submit_button("✅ Valider et générer le tableau final", type="primary")
-        
-        if submit_mapping:
-            with st.spinner("Fusion intelligente en cours..."):
-                df_c, df_m = df_cobas.copy(), df_mpl.copy()
-                used_mpl_indices = set()
-                indices_to_drop = []
+    st.write(f"Affichage de **{len(filtered_c_tests)}** analyse(s) sur {len(analyses_cobas)}.")
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # --- AFFICHAGE SUR 4 COLONNES ---
+    cols = st.columns(4)
+    for i, c_test in enumerate(filtered_c_tests):
+        with cols[i % 4]:
+            st.selectbox(
+                f"🔬 {c_test}", 
+                options=analyses_mpl,
+                key=f"map_{c_test}",
+                format_func=lambda x: f"{x} ({nom_to_libellong[x]})" if x in nom_to_libellong else x
+            )
+
+    st.markdown("---")
+    # --- BOUTON DE VALIDATION HORS FORMULAIRE ---
+    if st.button("✅ Valider et générer le tableau final", type="primary", use_container_width=True):
+        with st.spinner("Fusion intelligente en cours..."):
+            df_c, df_m = df_cobas.copy(), df_mpl.copy()
+            used_mpl_indices = set()
+            indices_to_drop = []
+            
+            df_c["Nom MPL"] = ""
+            df_c["Résulat MPL"], df_c["Unité MPL"] = "", ""
+            
+            def match_tubes(t_cobas, t_mpl):
+                tc, tm = str(t_cobas).strip(), str(t_mpl).strip()
+                if tc == tm: return True
+                if len(tc) == len(tm) + 2 and (tc[2:] == tm or tc[:-2] == tm): return True
+                return False
+            
+            # Application des choix enregistrés en mémoire
+            for idx, row in df_c.iterrows():
+                c_test, tube = row["Nom de l'analyse"], str(row["Numéro de tube"])
+                m_test_choisi = st.session_state.get(f"map_{c_test}", "🔴 -- Aucune correspondance --")
+                merged = False
                 
-                df_c["Nom MPL"] = ""
-                df_c["Résulat MPL"], df_c["Unité MPL"] = "", ""
-                
-                def match_tubes(t_cobas, t_mpl):
-                    tc, tm = str(t_cobas).strip(), str(t_mpl).strip()
-                    if tc == tm: return True
-                    if len(tc) == len(tm) + 2 and (tc[2:] == tm or tc[:-2] == tm): return True
-                    return False
-                
-                for idx, row in df_c.iterrows():
-                    c_test, tube = row["Nom de l'analyse"], str(row["Numéro de tube"])
-                    m_test_choisi = mappings.get(c_test)
-                    merged = False
+                if m_test_choisi == "❌ -- Ignorer cette analyse --":
+                    indices_to_drop.append(idx)
+                    continue
                     
-                    if m_test_choisi == "❌ -- Ignorer cette analyse --":
-                        indices_to_drop.append(idx)
-                        continue
-                        
-                    if m_test_choisi and m_test_choisi != "🔴 -- Aucune correspondance --":
-                        match = df_m[(df_m["Numéro de tube"].apply(lambda m: match_tubes(tube, m))) & (df_m["Nom de l'analyse"] == m_test_choisi)]
-                        match = match[~match.index.isin(used_mpl_indices)]
-                        if not match.empty:
-                            df_c.at[idx, "Nom MPL"] = match.iloc[0]["Nom de l'analyse"]
-                            df_c.at[idx, "Résulat MPL"] = match.iloc[0]["Résulat MPL"]
-                            df_c.at[idx, "Unité MPL"] = match.iloc[0]["Unité MPL"]
-                            used_mpl_indices.add(match.index[0])
-                            merged = True
-                    
-                    if not merged:
-                        potential_m = df_m[(df_m["Numéro de tube"].apply(lambda m: match_tubes(tube, m))) & (~df_m.index.isin(used_mpl_indices))]
-                        for m_idx, m_row in potential_m.iterrows():
-                            if are_values_equivalent(row["Résultat CPRO"], m_row["Résulat MPL"]):
-                                df_c.at[idx, "Nom MPL"] = m_row["Nom de l'analyse"]
-                                df_c.at[idx, "Résulat MPL"] = m_row["Résulat MPL"]
-                                df_c.at[idx, "Unité MPL"] = m_row["Unité MPL"]
-                                used_mpl_indices.add(m_idx)
-                                break
-
-                # Suppression des lignes ignorées
-                df_c = df_c.drop(index=indices_to_drop)
-
-                def get_12_digit(mpl_tube, df_cobas_ref):
-                    matches = df_cobas_ref[df_cobas_ref["Numéro de tube"].apply(lambda c: match_tubes(c, mpl_tube))]
-                    if not matches.empty: return str(matches.iloc[0]["Numéro de tube"])
-                    return str(mpl_tube) + "00" if len(str(mpl_tube)) == 10 else str(mpl_tube)
-
-                unused_mpl = df_m.drop(index=list(used_mpl_indices)).copy()
-                unused_mpl["Numéro de tube"] = unused_mpl["Numéro de tube"].apply(lambda t: get_12_digit(t, df_cobas))
+                if m_test_choisi and m_test_choisi != "🔴 -- Aucune correspondance --":
+                    match = df_m[(df_m["Numéro de tube"].apply(lambda m: match_tubes(tube, m))) & (df_m["Nom de l'analyse"] == m_test_choisi)]
+                    match = match[~match.index.isin(used_mpl_indices)]
+                    if not match.empty:
+                        df_c.at[idx, "Nom MPL"] = match.iloc[0]["Nom de l'analyse"]
+                        df_c.at[idx, "Résulat MPL"] = match.iloc[0]["Résulat MPL"]
+                        df_c.at[idx, "Unité MPL"] = match.iloc[0]["Unité MPL"]
+                        used_mpl_indices.add(match.index[0])
+                        merged = True
                 
-                unused_mpl["Nom MPL"] = unused_mpl["Nom de l'analyse"]
-                unused_mpl["Nom de l'analyse"] = ""
-                
-                df_combined = pd.concat([df_c, unused_mpl], ignore_index=True)
-                
-                colonnes_finales = ["Nom de l'analyse", "Nom MPL", "Numéro de tube", "Module CPRO", "Résultat CPRO", "Unité CPRO", "Facteur de conversion COBASPRO", "Résulat MPL", "Unité MPL", "Facteur de conversion MPL", "Résultat Kalisil", "Unité Kalisil", "Code ACN", "Id de l'analyse", "Sous-champ résultat", "Résultat QC", "NEGATIF/POSITIF/DOUTEUX", "Repassage"]
-                df_final = pd.DataFrame(columns=colonnes_finales)
-                for col in df_combined.columns:
-                    if col in df_final.columns: df_final[col] = df_combined[col]
+                if not merged:
+                    potential_m = df_m[(df_m["Numéro de tube"].apply(lambda m: match_tubes(tube, m))) & (~df_m.index.isin(used_mpl_indices))]
+                    for m_idx, m_row in potential_m.iterrows():
+                        if are_values_equivalent(row["Résultat CPRO"], m_row["Résulat MPL"]):
+                            df_c.at[idx, "Nom MPL"] = m_row["Nom de l'analyse"]
+                            df_c.at[idx, "Résulat MPL"] = m_row["Résulat MPL"]
+                            df_c.at[idx, "Unité MPL"] = m_row["Unité MPL"]
+                            used_mpl_indices.add(m_idx)
+                            break
 
-                df_driver[col_acn_driver] = df_driver[col_acn_driver].apply(clean_acn)
-                for idx, row in df_final.iterrows():
-                    nom_cobas = str(row.get("Nom de l'analyse", "")).replace(" (Interprétation)", "").strip()
-                    nom_mpl = str(row.get("Nom MPL", "")).strip()
-                    nom_recherche = nom_cobas if nom_cobas else nom_mpl
-                    
-                    acn = get_acn_from_mapping(nom_recherche)
-                    if acn:
-                        df_final.at[idx, "Code ACN"] = acn
-                        match_driver = df_driver[df_driver[col_acn_driver] == acn]
-                        if not match_driver.empty:
-                            for c in match_driver.columns:
-                                if "Id de l'analyse" in c: df_final.at[idx, "Id de l'analyse"] = match_driver.iloc[0][c]
-                                elif "Sous-champ résultat" in c: df_final.at[idx, "Sous-champ résultat"] = match_driver.iloc[0][c]
-                                elif "QC" in c: df_final.at[idx, "Résultat QC"] = match_driver.iloc[0][c]
-                                elif "NEGATIF" in c or "POSITIF" in c: df_final.at[idx, "NEGATIF/POSITIF/DOUTEUX"] = match_driver.iloc[0][c]
-                                elif "Repassage" in c: df_final.at[idx, "Repassage"] = match_driver.iloc[0][c]
+            df_c = df_c.drop(index=indices_to_drop)
 
-                st.session_state.df_final = df_final
-                st.session_state.etape = 3
-                st.rerun()
+            def get_12_digit(mpl_tube, df_cobas_ref):
+                matches = df_cobas_ref[df_cobas_ref["Numéro de tube"].apply(lambda c: match_tubes(c, mpl_tube))]
+                if not matches.empty: return str(matches.iloc[0]["Numéro de tube"])
+                return str(mpl_tube) + "00" if len(str(mpl_tube)) == 10 else str(mpl_tube)
+
+            unused_mpl = df_m.drop(index=list(used_mpl_indices)).copy()
+            unused_mpl["Numéro de tube"] = unused_mpl["Numéro de tube"].apply(lambda t: get_12_digit(t, df_cobas))
+            
+            unused_mpl["Nom MPL"] = unused_mpl["Nom de l'analyse"]
+            unused_mpl["Nom de l'analyse"] = ""
+            
+            df_combined = pd.concat([df_c, unused_mpl], ignore_index=True)
+            
+            colonnes_finales = ["Nom de l'analyse", "Nom MPL", "Numéro de tube", "Module CPRO", "Résultat CPRO", "Unité CPRO", "Facteur de conversion COBASPRO", "Résulat MPL", "Unité MPL", "Facteur de conversion MPL", "Résultat Kalisil", "Unité Kalisil", "Code ACN", "Id de l'analyse", "Sous-champ résultat", "Résultat QC", "NEGATIF/POSITIF/DOUTEUX", "Repassage"]
+            df_final = pd.DataFrame(columns=colonnes_finales)
+            for col in df_combined.columns:
+                if col in df_final.columns: df_final[col] = df_combined[col]
+
+            df_driver[col_acn_driver] = df_driver[col_acn_driver].apply(clean_acn)
+            for idx, row in df_final.iterrows():
+                nom_cobas = str(row.get("Nom de l'analyse", "")).replace(" (Interprétation)", "").strip()
+                nom_mpl = str(row.get("Nom MPL", "")).strip()
+                nom_recherche = nom_cobas if nom_cobas else nom_mpl
+                
+                acn = get_acn_from_mapping(nom_recherche)
+                if acn:
+                    df_final.at[idx, "Code ACN"] = acn
+                    match_driver = df_driver[df_driver[col_acn_driver] == acn]
+                    if not match_driver.empty:
+                        for c in match_driver.columns:
+                            if "Id de l'analyse" in c: df_final.at[idx, "Id de l'analyse"] = match_driver.iloc[0][c]
+                            elif "Sous-champ résultat" in c: df_final.at[idx, "Sous-champ résultat"] = match_driver.iloc[0][c]
+                            elif "QC" in c: df_final.at[idx, "Résultat QC"] = match_driver.iloc[0][c]
+                            elif "NEGATIF" in c or "POSITIF" in c: df_final.at[idx, "NEGATIF/POSITIF/DOUTEUX"] = match_driver.iloc[0][c]
+                            elif "Repassage" in c: df_final.at[idx, "Repassage"] = match_driver.iloc[0][c]
+
+            st.session_state.df_final = df_final
+            st.session_state.etape = 3
+            st.rerun()
 
 if st.session_state.etape == 3:
     st.divider()
