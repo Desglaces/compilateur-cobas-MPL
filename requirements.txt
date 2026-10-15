@@ -1,7 +1,6 @@
-streamlit
-pandas
-pypdf
-pytesseract
-Pillow
-openpyxl
-xlsxwriter
+streamlit==1.64.0
+pandas==3.0.5
+pypdf==6.18.1
+pytesseract==0.3.13
+Pillow==12.3.0
+xlsxwriter==3.2.9
