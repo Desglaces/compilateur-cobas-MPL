@@ -646,4 +646,121 @@ if st.session_state.etape >= 2:
                     m_test_choisi = st.session_state.user_mapping.get(c_test, "🔴 -- Aucune correspondance --")
                     merged = False
                     
-                    if m_test_choisi == "❌ -- Ignorer cette
+                    if m_test_choisi == "❌ -- Ignorer cette analyse --":
+                        indices_to_drop.append(idx)
+                        continue
+                        
+                    if m_test_choisi and m_test_choisi != "🔴 -- Aucune correspondance --":
+                        match = df_m[(df_m["Numéro de tube"].apply(lambda m: match_tubes_correct(tube, m))) & (df_m["Nom de l'analyse"] == m_test_choisi)]
+                        match = match[~match.index.isin(used_mpl_indices)]
+                        if not match.empty:
+                            df_c.at[idx, "Nom MPL"] = match.iloc[0]["Nom de l'analyse"]
+                            df_c.at[idx, "Résulat MPL"] = match.iloc[0]["Résulat MPL"]
+                            df_c.at[idx, "Unité MPL"] = match.iloc[0]["Unité MPL"]
+                            used_mpl_indices.add(match.index[0])
+                            merged = True
+                    
+                    if not merged:
+                        potential_m = df_m[(df_m["Numéro de tube"].apply(lambda m: match_tubes_correct(tube, m))) & (~df_m.index.isin(used_mpl_indices))]
+                        for m_idx, m_row in potential_m.iterrows():
+                            if are_values_equivalent(row["Résultat CPRO"], m_row["Résulat MPL"]):
+                                df_c.at[idx, "Nom MPL"] = m_row["Nom de l'analyse"]
+                                df_c.at[idx, "Résulat MPL"] = m_row["Résulat MPL"]
+                                df_c.at[idx, "Unité MPL"] = m_row["Unité MPL"]
+                                used_mpl_indices.add(m_idx)
+                                break
+    
+                df_c = df_c.drop(index=indices_to_drop)
+    
+                def get_12_digit(mpl_tube, df_cobas_ref):
+                    matches = df_cobas_ref[df_cobas_ref["Numéro de tube"].apply(lambda c: match_tubes_correct(c, mpl_tube))]
+                    if not matches.empty: return str(matches.iloc[0]["Numéro de tube"])
+                    return str(mpl_tube) + "00" if len(str(mpl_tube)) == 10 else str(mpl_tube)
+    
+                unused_mpl = df_m.drop(index=list(used_mpl_indices)).copy()
+                unused_mpl["Numéro de tube"] = unused_mpl["Numéro de tube"].apply(lambda t: get_12_digit(t, df_cobas))
+                
+                unused_mpl["Nom MPL"] = unused_mpl["Nom de l'analyse"]
+                unused_mpl["Nom de l'analyse"] = ""
+                
+                df_combined = pd.concat([df_c, unused_mpl], ignore_index=True)
+                
+                colonnes_finales = ["Nom de l'analyse", "Nom MPL", "Numéro de tube", "Module CPRO", "Résultat CPRO", "Unité CPRO", "Facteur de conversion COBASPRO", "Résulat MPL", "Unité MPL", "Facteur de conversion MPL", "Résultat Kalisil", "Unité Kalisil", "Code ACN", "Id de l'analyse", "Sous-champ résultat", "Résultat QC", "NEGATIF/POSITIF/DOUTEUX", "Repassage"]
+                df_final = pd.DataFrame(columns=colonnes_finales)
+                for col in df_combined.columns:
+                    if col in df_final.columns: df_final[col] = df_combined[col]
+    
+                df_driver[col_acn_driver] = df_driver[col_acn_driver].apply(clean_acn)
+                for idx, row in df_final.iterrows():
+                    nom_cobas = str(row.get("Nom de l'analyse", "")).replace(" (Interprétation)", "").strip()
+                    nom_mpl = str(row.get("Nom MPL", "")).strip()
+                    nom_recherche = nom_cobas if nom_cobas else nom_mpl
+                    
+                    acn = get_acn_from_mapping(nom_recherche)
+                    if acn:
+                        df_final.at[idx, "Code ACN"] = acn
+                        match_driver = df_driver[df_driver[col_acn_driver] == acn]
+                        if not match_driver.empty:
+                            for c in match_driver.columns:
+                                if "Id de l'analyse" in c: df_final.at[idx, "Id de l'analyse"] = match_driver.iloc[0][c]
+                                elif "Sous-champ résultat" in c: df_final.at[idx, "Sous-champ résultat"] = match_driver.iloc[0][c]
+                                elif "QC" in c: df_final.at[idx, "Résultat QC"] = match_driver.iloc[0][c]
+                                elif "NEGATIF" in c or "POSITIF" in c: df_final.at[idx, "NEGATIF/POSITIF/DOUTEUX"] = match_driver.iloc[0][c]
+                                elif "Repassage" in c: df_final.at[idx, "Repassage"] = match_driver.iloc[0][c]
+    
+                st.session_state.df_final = df_final
+                st.session_state.etape = 3
+                st.rerun()
+
+if st.session_state.etape == 3:
+    st.divider()
+    st.success("✅ Fichier compilé avec succès !")
+    
+    def highlight_cells(df):
+        styles = pd.DataFrame('', index=df.index, columns=df.columns)
+        
+        for idx, row in df.iterrows():
+            cpro_val = str(row.get("Résultat CPRO", "")).strip()
+            mpl_val = str(row.get("Résulat MPL", "")).strip()
+            
+            if cpro_val in ["", "None", "nan"] or mpl_val in ["", "None", "nan"]:
+                styles.loc[idx, :] = 'background-color: #ffcccc'
+                continue
+                
+            if not are_values_equivalent(cpro_val, mpl_val):
+                styles.loc[idx, "Résultat CPRO"] = 'background-color: #ff99cc'
+                styles.loc[idx, "Résulat MPL"] = 'background-color: #ff99cc'
+            
+            cpro_unit = str(row.get("Unité CPRO", "")).strip().lower()
+            mpl_unit = str(row.get("Unité MPL", "")).strip().lower()
+            empty_cpro = cpro_unit in ["", "none", "nan"]
+            empty_mpl = mpl_unit in ["", "none", "nan"]
+            
+            if cpro_unit != mpl_unit and not (empty_cpro and empty_mpl):
+                styles.loc[idx, "Unité CPRO"] = 'background-color: #ffe699'
+                styles.loc[idx, "Unité MPL"] = 'background-color: #ffe699'
+                
+        return styles
+        
+    styled_df = st.session_state.df_final.style.apply(highlight_cells, axis=None)
+    st.dataframe(styled_df, use_container_width=True)
+    
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer: 
+        styled_df.to_excel(writer, index=False, sheet_name="L3_cobaspro")
+    output.seek(0)
+    
+    col_dl, col_reset = st.columns(2)
+    with col_dl: st.download_button("📥 Télécharger le fichier compilé (Excel)", data=output, file_name=f"Resultats_Compiles_{VERSION}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    with col_reset:
+        if st.button("🔄 Recommencer une nouvelle compilation"):
+            st.session_state.etape = 1
+            st.rerun()
+
+if st.session_state.df_cobas is not None and st.session_state.df_mpl is not None:
+    st.divider()
+    with st.expander("🐛 Voir les données brutes extraites (Débogage)"):
+        st.write("**Données extraites des Fichiers (Cobas) :**")
+        st.dataframe(st.session_state.df_cobas, use_container_width=True)
+        st.write("**Données extraites des Fichiers (MPL ou Images) :**")
+        st.dataframe(st.session_state.df_mpl, use_container_width=True)
