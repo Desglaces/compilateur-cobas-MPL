@@ -356,6 +356,8 @@ if dark_mode:
     hr { border-color: #4a4b55 !important; }
     </style>
     """
+# Markdown prend toute ligne indentée de 4 espaces pour du code : on retire l'indentation et les lignes vides.
+css = "\n".join(l.strip() for l in css.splitlines() if l.strip())
 st.markdown(css, unsafe_allow_html=True)
 
 st.title(f"🧪 Compilateur de Résultats Cobas & MPL vers Excel (Version {VERSION})")
