@@ -337,11 +337,23 @@ css = """
 </style>
 """
 if dark_mode:
+    # Sélecteurs stables (data-testid / balises) : les classes "st-emotion-cache-xxxx" changent à chaque version de Streamlit.
     css += """
     <style>
-    .stApp { background-color: #0E1117; color: #FAFAFA; }
-    .st-emotion-cache-1wivap2 { color: #FAFAFA; }
-    div[data-testid="stFileUploader"] > section { background-color: #262730; }
+    .stApp, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-testid="stMain"] { background-color: #0E1117 !important; color: #FAFAFA !important; }
+    [data-testid="stHeader"], [data-testid="stToolbar"] { background-color: #0E1117 !important; }
+    [data-testid="stSidebar"] { background-color: #262730 !important; }
+    .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
+    .stApp p, .stApp li, .stApp label, .stApp span, .stApp small, .stApp caption,
+    [data-testid="stMarkdownContainer"], [data-testid="stWidgetLabel"], [data-testid="stCaptionContainer"] { color: #FAFAFA !important; }
+    [data-testid="stFileUploader"] section, [data-testid="stFileUploaderDropzone"] { background-color: #262730 !important; color: #FAFAFA !important; }
+    [data-testid="stFileUploader"] button, .stButton button, .stDownloadButton button, [data-testid="stBaseButton-secondary"] { background-color: #262730 !important; color: #FAFAFA !important; border-color: #4a4b55 !important; }
+    .stApp input, .stApp textarea, .stApp [data-baseweb="select"] > div, .stApp [data-baseweb="input"] > div { background-color: #262730 !important; color: #FAFAFA !important; }
+    [data-baseweb="popover"] ul, [data-baseweb="menu"], [role="listbox"] { background-color: #262730 !important; color: #FAFAFA !important; }
+    [data-testid="stExpander"], [data-testid="stExpander"] details { background-color: #161a23 !important; border-color: #4a4b55 !important; }
+    [data-testid="stAlert"] { background-color: #262730 !important; }
+    [data-testid="stDataFrame"], [data-testid="stTable"] { color-scheme: dark; }
+    hr { border-color: #4a4b55 !important; }
     </style>
     """
 st.markdown(css, unsafe_allow_html=True)
