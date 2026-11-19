@@ -376,8 +376,7 @@ st.info("📝 **Fiche SIDIV (optionnelle)** : tout en bas de la page, une fiche 
         "(automate, version du driver, dossiers de test, cases cochées par défaut…). "
         "**Il reste des informations à saisir à la main** (LBM, intervenants, numéro de commande, versions "
         "des logiciels, remarques…) et à vérifier avant de générer le PDF. Elle n'est pas obligatoire et "
-        "n'a aucun effet sur le compilateur. Un **PV d'installation** (optionnel) est aussi disponible juste "
-        "en dessous : il reprend le référent du LBM et l'intervenant S.I saisis dans la fiche SIDIV.")
+        "n'a aucun effet sur le compilateur.")
 
 if not OCR_AVAILABLE:
     st.warning("⚠️ Module `pytesseract` ou `Pillow` non détecté. L'extraction depuis des images sera désactivée.")
@@ -982,10 +981,3 @@ try:
                            getattr(uploaded_csv, "name", None), _df_mpl)
 except Exception as _e:
     st.warning(f"Fiche SIDIV indisponible : {_e}")
-
-# === PV D'INSTALLATION (optionnel) ===
-try:
-    from pv_install import afficher_section_pv
-    afficher_section_pv()
-except Exception as _e:
-    st.warning(f"PV d'installation indisponible : {_e}")
