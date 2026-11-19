@@ -963,3 +963,17 @@ if st.session_state.df_cobas is not None and st.session_state.df_mpl is not None
         if df_nr is not None and not df_nr.empty:
             st.write(f"**Lignes du rapport cobas non reconnues ({len(df_nr)}) :**")
             st.dataframe(df_nr, use_container_width=True)
+
+# === FICHE SIDIV (optionnelle) ===
+# Section repliée et indépendante du compilateur : une erreur ici ne doit jamais gêner l'outil.
+st.divider()
+try:
+    from sidiv import afficher_section_sidiv
+    _tubes = []
+    for _k in ("df_cobas", "df_mpl"):
+        _d = st.session_state.get(_k)
+        if _d is not None and "Numéro de tube" in _d.columns:
+            _tubes += [str(t) for t in _d["Numéro de tube"].dropna() if str(t).strip()]
+    afficher_section_sidiv(list(dict.fromkeys(_tubes)))
+except Exception as _e:
+    st.warning(f"Fiche SIDIV indisponible : {_e}")
