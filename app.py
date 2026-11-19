@@ -372,7 +372,10 @@ with st.expander("📖 Comment utiliser l'outil ?", expanded=True):
 """)
 
 st.info("📝 **Fiche SIDIV (optionnelle)** : tout en bas de la page, une fiche SIDIV de vérification de connexion "
-        "se pré-remplit une fois les fichiers déposés et les données extraites. Elle n'est pas obligatoire et "
+        "se **pré-remplit partiellement** une fois les fichiers déposés et les données extraites "
+        "(automate, version du driver, dossiers de test, cases cochées par défaut…). "
+        "**Il reste des informations à saisir à la main** (LBM, intervenants, numéro de commande, versions "
+        "des logiciels, remarques…) et à vérifier avant de générer le PDF. Elle n'est pas obligatoire et "
         "n'a aucun effet sur le compilateur.")
 
 if not OCR_AVAILABLE:
