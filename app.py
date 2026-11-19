@@ -362,6 +362,15 @@ st.markdown(css, unsafe_allow_html=True)
 
 st.title(f"🧪 Compilateur de Résultats Cobas & MPL vers Excel (Version {VERSION})")
 
+with st.expander("📖 Comment utiliser l'outil ?", expanded=True):
+    st.markdown("""
+1. **Fichiers Cobas et MPL** : déposez dans la case 1️⃣ les rapports Cobas (PDF) ainsi que les PDF MPL, obtenus depuis le **dossier patient** en cliquant sur l'icône **imprimante** 🖨️.
+2. **Export Driver Manager** (obligatoire) : dans **Driver Manager**, allez dans l'onglet **Analyse**, puis cliquez sur **Exporter**. Déposez le CSV obtenu dans la case 2️⃣.
+3. **Export MPL** (optionnel) : dans **MPL**, allez dans **Analyse**, puis cliquez sur **Exporter**. Déposez le CSV obtenu dans la case 3️⃣.
+4. Lancez l'extraction, vérifiez la correspondance des analyses, puis téléchargez le fichier Excel.
+5. ⚠️ **À la fin**, partagez le document **au format Google Sheet** avec le **bio responsable du plateau**.
+""")
+
 if not OCR_AVAILABLE:
     st.warning("⚠️ Module `pytesseract` ou `Pillow` non détecté. L'extraction depuis des images sera désactivée.")
 
