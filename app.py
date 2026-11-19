@@ -974,6 +974,6 @@ try:
         _d = st.session_state.get(_k)
         if _d is not None and "Numéro de tube" in _d.columns:
             _tubes += [str(t) for t in _d["Numéro de tube"].dropna() if str(t).strip()]
-    afficher_section_sidiv(list(dict.fromkeys(_tubes)))
+    afficher_section_sidiv(list(dict.fromkeys(_tubes)), getattr(uploaded_csv, "name", None))
 except Exception as _e:
     st.warning(f"Fiche SIDIV indisponible : {_e}")

@@ -10,6 +10,7 @@ une section repliée en bas de page.
 """
 import datetime
 import io
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -46,7 +47,8 @@ SEC1 = [
 ]
 SEC2 = [
     ("Périmètre de la validation", [
-        ("automate", "Automate (instrument)", "Text5.4.2.1.0", "t"),
+        ("automate", "Automate (instrument) – choisir dans la liste ou saisir manuellement",
+         "Text5.4.2.1.0", "s"),
         ("fournisseur", "Fournisseur", "Text5.4.2.1.1.0", "t"),
         ("v_automate", "Version logiciel de l'automate", "Text5.4.2.1.1.1", "t"),
         ("v_driver_auto", "Version driver de connexion de l'automate", "Text5.4.2.1.1.2", "t"),
@@ -106,11 +108,46 @@ SEC_REM = [
 ]
 TOUS_CHAMPS = [c for sec in (SEC1, SEC2, SEC3, SEC_REM) for _, lst in sec for c in lst]
 
+# Champs « enfants » (flèche ↳ dans la fiche) : affichés sous leur parent, seulement si celui-ci est coché.
+PARENT = {
+    "c_ftp": "c_fichiers", "c_autre": "c_fichiers", "c_semaphore": "c_fichiers",
+    "c_1socket": "c_socket", "c_nsocket": "c_socket",
+    "c_expl": "c_nsocket",
+}
+ENFANTS = {}
+for _enfant, _parent in PARENT.items():
+    ENFANTS.setdefault(_parent, []).append(_enfant)
+
+OPTIONS_AUTOMATE = ["Cobas pro", "Cobas pure"]
+
+# Valeurs pré-remplies à l'ouverture (modifiables)
+DEFAUTS = {
+    "automate": "Cobas pro",
+    "fournisseur": "ROCHE",
+    "m_dossiers": True,        # utilisation de dossiers
+    "p_bidi_interro": True,    # 3.1 bidi mode interrogatif
+    "f_hl7": True,             # 3.2 HL7
+    "c_socket": True,          # 3.3 socket
+    "c_1socket": True,         #     1 socket
+    "c_srv_cli": True,         #     SGL/MW Serveur – Instrument client
+}
+
+
+def analyser_nom_csv(nom):
+    """Déduit automate et version du driver du nom du CSV d'analyses (Driver Manager),
+    ex. « cobaspro-258-v3.21.0.6739-Analyses.csv » -> ("Cobas pro", "3.21.0.6739")."""
+    nom = str(nom or "")
+    bas = nom.lower()
+    automate = "Cobas pure" if "pure" in bas else ("Cobas pro" if "pro" in bas else None)
+    m = re.search(r"-v(\d+(?:\.\d+)+)", nom, flags=re.IGNORECASE)
+    return automate, (m.group(1) if m else None)
+
 # ---------------------------------------------------------------------------
 # Section 4 : grille de tests (Réf. dossier test / Tr / NA / T / OK / NOK / Commentaires)
 # ---------------------------------------------------------------------------
 COLS_CASES = ["Tr", "NA", "T", "OK", "NOK"]
 C_REF, C_COM, C_LIB = "Réf. dossier test", "Commentaires", "Test"
+NB_41_TESTEES = 7  # lignes 4.1 testées (IPP … Sexe) ; les 2 suivantes sont NA
 
 L41 = ["IPP", "Nom usuel", "Prénom", "Nom de naissance", "Civilité", "Date de naissance", "Sexe",
        "Renseignements permanents", "Traitement patient"]
@@ -236,6 +273,14 @@ def _df_vide(g):
     for c in COLS_CASES:
         d[c] = False
     d[C_COM] = ""
+    if g["id"] == "41":
+        # 4.1 : les 7 premières lignes (IPP … Sexe) sont transmises + testées ;
+        # « Renseignements permanents » et « Traitement patient » : NA coché (rien dans la réf.).
+        for i in range(len(d)):
+            if i < NB_41_TESTEES:
+                d.loc[i, ["Tr", "T"]] = True
+            else:
+                d.loc[i, "NA"] = True
     return d
 
 
@@ -284,22 +329,30 @@ def _champ(c):
         st.checkbox(label, key=k)
     elif kind == "a":
         st.text_area(label, key=k, height=90)
+    elif kind == "s":  # liste déroulante avec saisie libre possible
+        st.selectbox(label, OPTIONS_AUTOMATE, key=k, accept_new_options=True)
     else:
         st.text_input(label, key=k)
 
 
+def _afficher(c, par_cle):
+    """Affiche un champ puis, s'il est coché, ses champs « enfants » en dessous (indentés)."""
+    _champ(c)
+    enfants = ENFANTS.get(c[0], [])
+    if enfants and st.session_state.get(P + c[0]):
+        _, col = st.columns([1, 14])
+        with col:
+            for e in enfants:
+                _afficher(par_cle[e], par_cle)
+
+
 def _bloc(sections):
+    par_cle = {c[0]: c for c in TOUS_CHAMPS}
     for titre, champs in sections:
         st.markdown(f"**{titre}**")
-        cases = [c for c in champs if c[3] == "c"]
-        autres = [c for c in champs if c[3] != "c"]
-        for c in autres:
-            _champ(c)
-        if cases:
-            cols = st.columns(2) if len(cases) > 3 else [st.container()]
-            for i, c in enumerate(cases):
-                with cols[i % len(cols)]:
-                    _champ(c)
+        for c in champs:
+            if c[0] not in PARENT:  # les enfants sont affichés sous leur parent
+                _afficher(c, par_cle)
 
 
 def _grille(g):
@@ -324,9 +377,21 @@ def _grille(g):
         st.text_area(label, key=f"{P}note_{nom}", height=80)
 
 
+def _actif(cle):
+    """Un champ enfant n'est pris en compte que si toute sa chaîne de parents est cochée."""
+    parent = PARENT.get(cle)
+    while parent:
+        if not st.session_state.get(P + parent):
+            return False
+        parent = PARENT.get(parent)
+    return True
+
+
 def _collecter():
     textes, cases = {}, set()
     for cle, _, nom, kind in TOUS_CHAMPS:
+        if not _actif(cle):
+            continue
         v = st.session_state.get(P + cle)
         if kind == "c":
             if v:
@@ -358,32 +423,52 @@ def _init(tubes):
         return
     st.session_state[f"{P}init"] = True
     st.session_state[P + "date_verif"] = datetime.date.today().strftime("%d/%m/%Y")
-    st.session_state[P + "m_dossiers"] = True  # on travaille avec des dossiers tests
+    for cle, valeur in DEFAUTS.items():
+        st.session_state[P + cle] = valeur
     for g in GRILLES:
         st.session_state[f"{P}base_{g['id']}"] = _df_vide(g)
         st.session_state[f"{P}ver_{g['id']}"] = 0
 
 
-def _proposer_ref(tubes):
-    """Propose le 1er dossier test détecté comme réf. (sans écraser une saisie de l'utilisateur)."""
+def _prefill_extraction(tubes, nom_csv):
+    """Pré-remplit à partir de ce que l'outil a extrait (sans écraser une saisie de l'utilisateur) :
+    - réf. dossier test (n° de tubes) dans la grille 4.1 et en proposition globale ;
+    - automate et version du driver, d'après le nom du CSV d'analyses de l'étape 2."""
     if tubes and st.session_state.get(P + "tubes_vus") != tubes:
         st.session_state[P + "tubes_vus"] = tubes
         if not str(st.session_state.get(P + "ref_globale") or "").strip():
             st.session_state[P + "ref_globale"] = tubes[0]
+        g41 = GRILLES[0]
+
+        def f(d):
+            # un n° de dossier différent par ligne testée (on boucle s'il y en a moins que de lignes)
+            for i in range(NB_41_TESTEES):
+                if not str(d.loc[i, C_REF] or "").strip():
+                    d.loc[i, C_REF] = tubes[i % len(tubes)]
+        _modifier(g41, f)
+    if nom_csv and st.session_state.get(P + "csv_vu") != nom_csv:
+        st.session_state[P + "csv_vu"] = nom_csv
+        automate, version = analyser_nom_csv(nom_csv)
+        if automate:
+            st.session_state[P + "automate"] = automate
+        if version:
+            st.session_state[P + "v_driver_auto"] = version
 
 
-def afficher_section_sidiv(tubes=None):
+def afficher_section_sidiv(tubes=None, nom_csv_driver=None):
     """Section optionnelle (repliée) : saisie de la fiche SIDIV et génération du PDF modifiable.
 
-    tubes : liste facultative de n° de tubes/dossiers détectés par le compilateur
-            (proposés comme « Réf. dossier test »)."""
+    tubes          : liste facultative de n° de tubes/dossiers détectés par le compilateur
+                     (proposés comme « Réf. dossier test »).
+    nom_csv_driver : nom du CSV d'analyses (Driver Manager) déposé à l'étape 2, d'où l'on déduit
+                     l'automate et la version du driver."""
     tubes = [str(t) for t in (tubes or []) if str(t).strip()]
     with st.expander("📝 Fiche SIDIV – Vérification de connexion (optionnel)", expanded=False):
         if not MODELE.exists():
             st.error(f"Modèle introuvable : {MODELE.name}")
             return
         _init(tubes)
-        _proposer_ref(tubes)
+        _prefill_extraction(tubes, nom_csv_driver)
         st.caption("Facultatif : indépendant du compilateur ci-dessus. Remplissez ce que vous voulez, "
                    "puis générez le PDF : il reste modifiable (champs de formulaire) et les signatures "
                    "restent à faire.")
