@@ -147,7 +147,66 @@ def analyser_nom_csv(nom):
 # ---------------------------------------------------------------------------
 COLS_CASES = ["Tr", "NA", "T", "OK", "NOK"]
 C_REF, C_COM, C_LIB = "Réf. dossier test", "Commentaires", "Test"
-NB_41_TESTEES = 7  # lignes 4.1 testées (IPP … Sexe) ; les 2 suivantes sont NA
+
+# Cases pré-cochées par grille (indices de lignes) : "TrT" = Transmis + Testé ; "NA" = sans objet.
+# 4.1 : IPP … Sexe testés ; « Renseignements permanents » et « Traitement patient » NA.
+# 4.2 : N° échantillon, Analyse/test, Urgence testés ; toutes les autres lignes NA.
+# 4.3 : valeur brute, seuils, horodatage mesure, position échantillon, identification instrument,
+#       valeurs CQ testés ; unités NA ; de « Identification opérateur » à « Graphiques » NA ;
+#       les 3 lignes après « Valeurs CQ » et les 2 dernières (maintenance, autres champs) NA.
+#       (« valeur interprétée » est laissée vide.)
+#       « valeurs alphanumériques » (index 3) est coché seulement si un dossier MPL adapté existe.
+TR_T = {"41": list(range(7)), "42": [0, 1, 4], "43": [0, 2, 5, 6, 7, 21]}
+NA_PAR_DEFAUT = {"41": [7, 8],
+                 "42": [i for i in range(18) if i not in (0, 1, 4)],
+                 "43": [4] + list(range(8, 21)) + [22, 23, 24, 25, 26]}
+# Lignes qui reçoivent un n° de dossier issu de l'extraction (un dossier différent par ligne)
+LIGNES_AVEC_DOSSIER = [("41", i) for i in range(7)] + [("42", i) for i in (0, 1, 4)]
+IDX_43_BRUT, IDX_43_SEUILS, IDX_43_ALPHA = 0, 2, 3
+
+
+def tubes_dossiers_tests(df_cobas=None, df_mpl=None):
+    """N° de dossiers tests à proposer : ceux présents à la fois dans le rapport Cobas et dans les
+    PDF MPL (ce sont les dossiers réellement suivis de bout en bout), triés. À défaut (un seul des
+    deux côtés extrait), tous les tubes connus."""
+    def tubes(df):
+        if df is None or "Numéro de tube" not in getattr(df, "columns", []):
+            return []
+        return list(dict.fromkeys(str(t).strip() for t in df["Numéro de tube"].dropna() if str(t).strip()))
+    c, m = tubes(df_cobas), tubes(df_mpl)
+    communs = [t for t in c if t in set(m)]
+    return sorted(communs or dict.fromkeys(c + m))
+
+
+def dossiers_mpl(df_mpl):
+    """Cherche dans l'extraction MPL un dossier avec un résultat à seuil (commençant par < ou >)
+    et un dossier avec un résultat alphanumérique (texte, hors indices sérum H/I/L).
+    Retourne (dossier_seuil, dossier_alpha), None si absent."""
+    seuil = alpha = None
+    try:
+        col = "Résulat MPL"
+        if df_mpl is None or df_mpl.empty or col not in df_mpl.columns:
+            return None, None
+        for _, row in df_mpl.iterrows():
+            tube, res = str(row.get("Numéro de tube", "")).strip(), str(row[col]).strip()
+            if not tube or not res or res.lower() == "nan":
+                continue
+            if res[0] in "<>":
+                seuil = seuil or tube
+                continue
+            try:
+                float(res.replace(",", "."))
+                continue  # numérique
+            except ValueError:
+                pass
+            nom = str(row.get("Nom de l'analyse", ""))
+            if re.search(r"[A-Za-zÀ-ÿ]", res) and not re.match(r"^[HIL] ?\w{1,3}$", nom.strip()):
+                alpha = alpha or tube
+            if seuil and alpha:
+                break
+    except Exception:
+        pass
+    return seuil, alpha
 
 L41 = ["IPP", "Nom usuel", "Prénom", "Nom de naissance", "Civilité", "Date de naissance", "Sexe",
        "Renseignements permanents", "Traitement patient"]
@@ -273,14 +332,10 @@ def _df_vide(g):
     for c in COLS_CASES:
         d[c] = False
     d[C_COM] = ""
-    if g["id"] == "41":
-        # 4.1 : les 7 premières lignes (IPP … Sexe) sont transmises + testées ;
-        # « Renseignements permanents » et « Traitement patient » : NA coché (rien dans la réf.).
-        for i in range(len(d)):
-            if i < NB_41_TESTEES:
-                d.loc[i, ["Tr", "T"]] = True
-            else:
-                d.loc[i, "NA"] = True
+    for i in TR_T.get(g["id"], []):
+        d.loc[i, ["Tr", "T"]] = True
+    for i in NA_PAR_DEFAUT.get(g["id"], []):  # NA : case cochée, rien écrit dans la réf.
+        d.loc[i, "NA"] = True
     return d
 
 
@@ -430,22 +485,30 @@ def _init(tubes):
         st.session_state[f"{P}ver_{g['id']}"] = 0
 
 
-def _prefill_extraction(tubes, nom_csv):
+def _prefill_extraction(tubes, nom_csv, df_mpl=None):
     """Pré-remplit à partir de ce que l'outil a extrait (sans écraser une saisie de l'utilisateur) :
-    - réf. dossier test (n° de tubes) dans la grille 4.1 et en proposition globale ;
+    - réf. dossier test (n° de tubes) dans les grilles 4.1 / 4.2, en proposition globale, et
+      dossiers MPL à seuil / alphanumérique en 4.3 ;
     - automate et version du driver, d'après le nom du CSV d'analyses de l'étape 2."""
     if tubes and st.session_state.get(P + "tubes_vus") != tubes:
         st.session_state[P + "tubes_vus"] = tubes
         if not str(st.session_state.get(P + "ref_globale") or "").strip():
             st.session_state[P + "ref_globale"] = tubes[0]
-        g41 = GRILLES[0]
-
-        def f(d):
-            # un n° de dossier différent par ligne testée (on boucle s'il y en a moins que de lignes)
-            for i in range(NB_41_TESTEES):
-                if not str(d.loc[i, C_REF] or "").strip():
-                    d.loc[i, C_REF] = tubes[i % len(tubes)]
-        _modifier(g41, f)
+        seuil, alpha = dossiers_mpl(df_mpl)
+        for g in GRILLES:
+            def f(d, g=g):
+                # un n° de dossier différent par ligne testée (on boucle s'il y en a moins que de lignes)
+                for k, (gid, i) in enumerate(LIGNES_AVEC_DOSSIER):
+                    if gid == g["id"] and not str(d.loc[i, C_REF] or "").strip():
+                        d.loc[i, C_REF] = tubes[k % len(tubes)]
+                if g["id"] == "43":
+                    if seuil and not str(d.loc[IDX_43_SEUILS, C_REF] or "").strip():
+                        d.loc[IDX_43_SEUILS, C_REF] = seuil
+                    if alpha:  # sinon : on ne coche rien pour les valeurs alphanumériques
+                        if not str(d.loc[IDX_43_ALPHA, C_REF] or "").strip():
+                            d.loc[IDX_43_ALPHA, C_REF] = alpha
+                        d.loc[IDX_43_ALPHA, ["Tr", "T"]] = True
+            _modifier(g, f)
     if nom_csv and st.session_state.get(P + "csv_vu") != nom_csv:
         st.session_state[P + "csv_vu"] = nom_csv
         automate, version = analyser_nom_csv(nom_csv)
@@ -455,20 +518,21 @@ def _prefill_extraction(tubes, nom_csv):
             st.session_state[P + "v_driver_auto"] = version
 
 
-def afficher_section_sidiv(tubes=None, nom_csv_driver=None):
+def afficher_section_sidiv(tubes=None, nom_csv_driver=None, df_mpl=None):
     """Section optionnelle (repliée) : saisie de la fiche SIDIV et génération du PDF modifiable.
 
     tubes          : liste facultative de n° de tubes/dossiers détectés par le compilateur
                      (proposés comme « Réf. dossier test »).
     nom_csv_driver : nom du CSV d'analyses (Driver Manager) déposé à l'étape 2, d'où l'on déduit
-                     l'automate et la version du driver."""
+                     l'automate et la version du driver.
+    df_mpl         : extraction MPL (pour trouver un dossier à seuil < / > et un dossier alphanumérique)."""
     tubes = [str(t) for t in (tubes or []) if str(t).strip()]
     with st.expander("📝 Fiche SIDIV – Vérification de connexion (optionnel)", expanded=False):
         if not MODELE.exists():
             st.error(f"Modèle introuvable : {MODELE.name}")
             return
         _init(tubes)
-        _prefill_extraction(tubes, nom_csv_driver)
+        _prefill_extraction(tubes, nom_csv_driver, df_mpl)
         st.caption("Facultatif : indépendant du compilateur ci-dessus. Remplissez ce que vous voulez, "
                    "puis générez le PDF : il reste modifiable (champs de formulaire) et les signatures "
                    "restent à faire.")

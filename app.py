@@ -371,6 +371,10 @@ with st.expander("📖 Comment utiliser l'outil ?", expanded=True):
 5. ⚠️ **À la fin**, partagez le document **au format Google Sheet** avec le **bio responsable du plateau**.
 """)
 
+st.info("📝 **Fiche SIDIV (optionnelle)** : tout en bas de la page, une fiche SIDIV de vérification de connexion "
+        "se pré-remplit une fois les fichiers déposés et les données extraites. Elle n'est pas obligatoire et "
+        "n'a aucun effet sur le compilateur.")
+
 if not OCR_AVAILABLE:
     st.warning("⚠️ Module `pytesseract` ou `Pillow` non détecté. L'extraction depuis des images sera désactivée.")
 
@@ -968,12 +972,9 @@ if st.session_state.df_cobas is not None and st.session_state.df_mpl is not None
 # Section repliée et indépendante du compilateur : une erreur ici ne doit jamais gêner l'outil.
 st.divider()
 try:
-    from sidiv import afficher_section_sidiv
-    _tubes = []
-    for _k in ("df_cobas", "df_mpl"):
-        _d = st.session_state.get(_k)
-        if _d is not None and "Numéro de tube" in _d.columns:
-            _tubes += [str(t) for t in _d["Numéro de tube"].dropna() if str(t).strip()]
-    afficher_section_sidiv(list(dict.fromkeys(_tubes)), getattr(uploaded_csv, "name", None))
+    from sidiv import afficher_section_sidiv, tubes_dossiers_tests
+    _df_mpl = st.session_state.get("df_mpl")
+    afficher_section_sidiv(tubes_dossiers_tests(st.session_state.get("df_cobas"), _df_mpl),
+                           getattr(uploaded_csv, "name", None), _df_mpl)
 except Exception as _e:
     st.warning(f"Fiche SIDIV indisponible : {_e}")
