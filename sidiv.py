@@ -16,6 +16,7 @@ from pathlib import Path
 import pandas as pd
 import pypdf
 import streamlit as st
+from i18n import t as tr
 
 MODELE = Path(__file__).with_name("Doc_SIDIV_Verification.pdf")
 P = "sidiv_"  # préfixe des clés de session
@@ -527,18 +528,14 @@ def afficher_section_sidiv(tubes=None, nom_csv_driver=None, df_mpl=None):
                      l'automate et la version du driver.
     df_mpl         : extraction MPL (pour trouver un dossier à seuil < / > et un dossier alphanumérique)."""
     tubes = [str(t) for t in (tubes or []) if str(t).strip()]
-    with st.expander("📝 Fiche SIDIV – Vérification de connexion (optionnel)", expanded=False):
+    with st.expander(tr("sd_title"), expanded=False):
         if not MODELE.exists():
-            st.error(f"Modèle introuvable : {MODELE.name}")
+            st.error(tr("sd_missing", f=MODELE.name))
             return
         _init(tubes)
         _prefill_extraction(tubes, nom_csv_driver, df_mpl)
-        st.caption("Facultatif : indépendant du compilateur ci-dessus. Remplissez ce que vous voulez, "
-                   "puis générez le PDF : il reste modifiable (champs de formulaire) et les signatures "
-                   "restent à faire.")
-        t1, t2, t3, t4, t5 = st.tabs(["1. Informations générales", "2. Périmètre",
-                                      "3. Description de la connexion", "4. Tests effectués",
-                                      "Remarques & dates"])
+        st.caption(tr("sd_caption"))
+        t1, t2, t3, t4, t5 = st.tabs([tr("sd_tab1"), tr("sd_tab2"), tr("sd_tab3"), tr("sd_tab4"), tr("sd_tab5")])
         with t1:
             _bloc(SEC1)
         with t2:
@@ -546,30 +543,27 @@ def afficher_section_sidiv(tubes=None, nom_csv_driver=None, df_mpl=None):
         with t3:
             _bloc(SEC3)
         with t4:
-            st.caption("Légende : Tr = Transmis / NA = Non applicable / T = Testé / OK = Test OK / "
-                       "NOK = Test non OK")
+            st.caption(tr("sd_legend"))
             if tubes:
-                st.info("Dossiers tests détectés dans l'extraction : " + ", ".join(tubes[:12])
-                        + (" …" if len(tubes) > 12 else ""))
+                st.info(tr("sd_detected", l=", ".join(tubes[:12]) + (" …" if len(tubes) > 12 else "")))
             c1, c2 = st.columns([3, 1])
-            c1.text_input("Réf. dossier test à reporter sur les lignes vides", key=P + "ref_globale",
-                          help="Par ex. le n° de tube / dossier test utilisé pour la vérification.")
-            c2.button("Appliquer", on_click=_appliquer_ref, width="stretch")
+            c1.text_input(tr("sd_ref"), key=P + "ref_globale", help=tr("sd_ref_help"))
+            c2.button(tr("sd_apply"), on_click=_appliquer_ref, width="stretch")
             for g in GRILLES:
                 _grille(g)
         with t5:
             _bloc(SEC_REM)
 
         st.divider()
-        if st.button("📄 Générer la fiche SIDIV (PDF modifiable)", type="primary", key=P + "gen"):
+        if st.button(tr("sd_gen"), type="primary", key=P + "gen"):
             try:
                 textes, cases = _collecter()
                 st.session_state[P + "pdf"] = remplir_pdf(textes, cases)
             except Exception as e:  # ne doit jamais gêner le reste de l'outil
                 st.session_state.pop(P + "pdf", None)
-                st.error(f"Échec de la génération de la fiche SIDIV : {e}")
+                st.error(tr("sd_fail", e=e))
         if st.session_state.get(P + "pdf"):
             suffixe = str(st.session_state.get(P + "commande") or "").strip().replace(" ", "_").replace("/", "-")
-            st.download_button("⬇️ Télécharger la fiche SIDIV (PDF)", data=st.session_state[P + "pdf"],
+            st.download_button(tr("sd_dl"), data=st.session_state[P + "pdf"],
                                file_name="Doc_SIDIV_Verification" + (f"_{suffixe}" if suffixe else "") + ".pdf",
                                mime="application/pdf", key=P + "dl")

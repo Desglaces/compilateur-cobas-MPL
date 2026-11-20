@@ -5,6 +5,7 @@ import re
 import io
 import difflib
 import unicodedata
+from i18n import t as tr, LANGUES
 
 try:
     import pytesseract
@@ -326,8 +327,10 @@ def lire_rapport_cobas(textes_pages):
 
 st.set_page_config(page_title=f"Compilateur Cobas & MPL {VERSION}", layout="wide")
 
-col_vide, col_bouton = st.columns([4, 1])
-with col_bouton: dark_mode = st.toggle("🌙 Mode Sombre")
+col_vide, col_lang, col_bouton = st.columns([3, 1, 1])
+with col_lang:
+    st.selectbox(tr("lang"), list(LANGUES), format_func=LANGUES.get, key="lang")
+with col_bouton: dark_mode = st.toggle(tr("dark"))
 
 css = """
 <style>
@@ -360,36 +363,25 @@ if dark_mode:
 css = "\n".join(l.strip() for l in css.splitlines() if l.strip())
 st.markdown(css, unsafe_allow_html=True)
 
-st.title(f"🧪 Compilateur de Résultats Cobas & MPL vers Excel (Version {VERSION})")
+st.title(tr("title", v=VERSION))
 
-with st.expander("📖 Comment utiliser l'outil ?", expanded=True):
-    st.markdown("""
-1. **Fichiers Cobas et MPL** : déposez dans la case 1️⃣ les rapports Cobas (PDF) ainsi que les PDF MPL, obtenus depuis le **dossier patient** en cliquant sur l'icône **imprimante** 🖨️.
-2. **Export Driver Manager** (obligatoire) : dans **Driver Manager**, allez dans l'onglet **Analyse**, puis cliquez sur **Exporter**. Déposez le CSV obtenu dans la case 2️⃣.
-3. **Export MPL** (optionnel) : dans **MPL**, allez dans **Analyse**, puis cliquez sur **Exporter**. Déposez le CSV obtenu dans la case 3️⃣.
-4. Lancez l'extraction, vérifiez la correspondance des analyses, puis téléchargez le fichier Excel.
-5. ⚠️ **À la fin**, partagez le document **au format Google Sheet** avec le **bio responsable du plateau**.
-""")
+with st.expander(tr("howto_title"), expanded=True):
+    st.markdown(tr("howto"))
 
-st.info("📝 **Fiche SIDIV (optionnelle)** : tout en bas de la page, une fiche SIDIV de vérification de connexion "
-        "se **pré-remplit partiellement** une fois les fichiers déposés et les données extraites "
-        "(automate, version du driver, dossiers de test, cases cochées par défaut…). "
-        "**Il reste des informations à saisir à la main** (LBM, intervenants, numéro de commande, versions "
-        "des logiciels, remarques…) et à vérifier avant de générer le PDF. Elle n'est pas obligatoire et "
-        "n'a aucun effet sur le compilateur.")
+st.info(tr("sidiv_info"))
 
 if not OCR_AVAILABLE:
-    st.warning("⚠️ Module `pytesseract` ou `Pillow` non détecté. L'extraction depuis des images sera désactivée.")
+    st.warning(tr("no_ocr"))
 
 # === EXPORT VIERGE ===
-st.info("💡 **Astuce :** Vous pouvez générer un fichier Excel d'analyses vierges dès maintenant (sans déposer de fichier) si vous souhaitez faire une saisie entièrement manuelle.")
+st.info(tr("blank_tip"))
 colonnes_vierge = ["Nom de l'analyse", "Nom MPL", "Numéro de tube", "Module CPRO", "Résultat CPRO", "Unité CPRO", "Facteur de conversion COBASPRO", "Résulat MPL", "Unité MPL", "Facteur de conversion MPL", "Résultat Kalisil", "Unité Kalisil", "Code ACN", "Id de l'analyse", "Sous-champ résultat", "Résultat QC", "NEGATIF/POSITIF/DOUTEUX", "Repassage"]
 df_export_vierge = pd.DataFrame(columns=colonnes_vierge)
 output_vierge = io.BytesIO()
 with pd.ExcelWriter(output_vierge, engine='xlsxwriter') as writer: 
     df_export_vierge.to_excel(writer, index=False, sheet_name="L3_cobaspro")
 output_vierge.seek(0)
-st.download_button("⬇️ Télécharger la trame vierge", data=output_vierge, file_name="Modele_Vierge_MPL.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+st.download_button(tr("blank_btn"), data=output_vierge, file_name="Modele_Vierge_MPL.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             
 st.divider()
 
@@ -471,7 +463,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
             reader = pypdf.PdfReader(uploaded_file)
             textes_layout = [(p.extract_text(extraction_mode="layout") or "") for p in reader.pages]
             if not "".join(textes_layout).strip():
-                erreurs.append(f"⚠️ Le PDF '{uploaded_file.name}' ne contient aucun texte lisible (document scanné ?). Fournis-le en image (png/jpg) pour passer par l'OCR.")
+                erreurs.append(tr("e_pdf_empty", f=uploaded_file.name))
                 continue
 
             if est_rapport_cobas(textes_layout[0]):
@@ -494,7 +486,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                     if r['interpretation']:
                         cobas_records.append({"Nom de l'analyse": f"{r['test']} (Interprétation)", "Résultat CPRO": r['interpretation'], "Unité CPRO": "", **commun})
                 if records_found_for_file == 0:
-                    erreurs.append(f"⚠️ Le rapport cobas '{uploaded_file.name}' n'a retourné aucun résultat.")
+                    erreurs.append(tr("e_cobas_empty", f=uploaded_file.name))
             else:
                 tube_id = "UNKNOWN"
                 for page_layout in textes_layout:
@@ -539,11 +531,11 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
                             ajouter_mpl(test_name, tube_id, res, unit)
                             records_found_for_file += 1
                 if records_found_for_file == 0:
-                    erreurs.append(f"⚠️ Le compte rendu MPL '{uploaded_file.name}' n'a retourné aucune analyse (ni rapport cobas reconnu, ni ligne de résultat MPL).")
+                    erreurs.append(tr("e_mpl_empty", f=uploaded_file.name))
 
         # ================= LECTURE IMAGE AVEC PRE-TRAITEMENT =================
         elif file_ext in ['png', 'jpg', 'jpeg'] and not OCR_AVAILABLE:
-            erreurs.append(f"⚠️ Image '{uploaded_file.name}' ignorée : le module OCR (pytesseract / Pillow) n'est pas installé.")
+            erreurs.append(tr("e_img_noocr", f=uploaded_file.name))
         elif file_ext in ['png', 'jpg', 'jpeg'] and OCR_AVAILABLE:
             try:
                 img = Image.open(uploaded_file)
@@ -556,7 +548,7 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
 
                 text = pytesseract.image_to_string(img, config='--psm 6')
             except Exception as e:
-                erreurs.append(f"⚠️ Image '{uploaded_file.name}' non lue par l'OCR ({type(e).__name__} : {e}). Le programme Tesseract est-il installé sur ce poste ?")
+                erreurs.append(tr("e_img_ocr", f=uploaded_file.name, err=f"{type(e).__name__} : {e}"))
                 continue
 
             lines = [l.strip() for l in text.split('\n') if l.strip()]
@@ -662,33 +654,92 @@ def process_files(uploaded_files, csv_bytes=None, csv_mpl_trans_bytes=None):
 
 # -------------------------------------------------------------------------------------
 
-st.subheader("Étape 1 : Dépôt des fichiers")
-uploaded_files = st.file_uploader("1️⃣ Déposez les fichiers PDF ou IMAGES (png, jpg)", type=["pdf", "png", "jpg", "jpeg"], accept_multiple_files=True, key="depot_fichiers")
+def acn_valides(df_driver, col_acn):
+    """ACN distincts du CSV driver (hors cellules vides), triés."""
+    vals = {clean_acn(v) for v in df_driver[col_acn].dropna()}
+    return sorted(v for v in vals if v and v.lower() not in ("nan", "none"))
+
+def acn_testes(df_driver_codes, df_cobas, df_mpl, analyses_cobas, premiere_ligne, user_mapping):
+    """ACN présents dans les rapports Cobas (hors analyses ignorées) ou les résultats MPL extraits.
+    df_driver_codes : code MPL -> ACN."""
+    testes = set()
+    for c_test in analyses_cobas:
+        if str(user_mapping.get(c_test, "")).startswith("❌"): continue
+        nom = str(premiere_ligne.at[c_test, "Nom de l'analyse"]).replace(" (Interprétation)", "").strip()
+        acn = get_acn_from_mapping(nom, premiere_ligne.at[c_test, "_type"])
+        if acn: testes.add(acn)
+    if df_mpl is not None and "Nom de l'analyse" in df_mpl.columns:
+        for code in df_mpl["Nom de l'analyse"].dropna().astype(str).str.strip().unique():
+            if code in df_driver_codes: testes.add(df_driver_codes[code])
+    return testes
+
+def afficher_avancement(df_driver, col_acn, acn_to_mpl, code_to_rows, df_cobas, df_mpl,
+                        analyses_cobas, premiere_ligne, user_mapping):
+    a_tester = acn_valides(df_driver, col_acn)
+    if not a_tester: return
+    code_to_acn = {code: clean_acn(df_driver.at[rows[0], col_acn]) for code, rows in code_to_rows.items()}
+    testes = acn_testes(code_to_acn, df_cobas, df_mpl, analyses_cobas, premiere_ligne, user_mapping)
+    a_tester_set = set(a_tester)
+    faits = a_tester_set & testes
+    manquants = [a for a in a_tester if a not in faits]
+    pct = len(faits) / len(a_tester)
+
+    st.markdown(f"#### {tr('prog_title')}")
+    st.caption(tr("prog_help"))
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric(tr("prog_metric"), f"{int(pct * 100)}%")
+    c2.metric(tr("prog_tested"), len(faits))
+    c3.metric(tr("prog_total"), len(a_tester))
+    c4.metric(tr("prog_missing_n"), len(manquants))
+    st.progress(pct)
+
+    if not manquants:
+        st.success(tr("prog_all"))
+    else:
+        cobas_connu = {}
+        for k, v in MAPPING_ACN.items(): cobas_connu.setdefault(v, k)
+        for (k, _), v in MAPPING_ACN_PAR_TYPE.items(): cobas_connu.setdefault(v, k)
+        df_manq = pd.DataFrame({
+            tr("prog_col_acn"): manquants,
+            tr("prog_col_mpl"): [", ".join(dict.fromkeys(n for n, _ in acn_to_mpl.get(a, []))) for a in manquants],
+            tr("prog_col_cobas"): [cobas_connu.get(a, "") for a in manquants],
+        })
+        with st.expander(tr("prog_missing_title", n=len(manquants)), expanded=False):
+            st.dataframe(df_manq, use_container_width=True, hide_index=True)
+            st.download_button(tr("prog_dl"), data=df_manq.to_csv(index=False, sep=";").encode("utf-8-sig"),
+                               file_name="ACN_manquants.csv", mime="text/csv", key="dl_acn_manquants")
+    en_trop = sorted(testes - a_tester_set)
+    if en_trop:
+        st.caption(tr("prog_extra", n=len(en_trop), l=", ".join(en_trop)))
+    st.markdown("---")
+
+st.subheader(tr("step1"))
+uploaded_files = st.file_uploader(tr("up1"), type=["pdf", "png", "jpg", "jpeg"], accept_multiple_files=True, key="depot_fichiers")
 if uploaded_files:
-    st.info(f"📂 **{len(uploaded_files)} fichier(s) prêt(s) pour l'extraction**")
+    st.info(tr("n_files", n=len(uploaded_files)))
 
 col_a, col_b = st.columns(2)
 with col_a:
-    uploaded_csv = st.file_uploader("2️⃣ Obligatoire : Export Driver Manager (onglet Analyse)", type="csv")
+    uploaded_csv = st.file_uploader(tr("up2"), type="csv")
 with col_b:
-    uploaded_csv_mpl = st.file_uploader("3️⃣ Optionnel : Export analyse MPL (CSV)", type="csv")
+    uploaded_csv_mpl = st.file_uploader(tr("up3"), type="csv")
 
 if uploaded_files and uploaded_csv:
-    if st.button("📥 Extraire les données des fichiers"):
+    if st.button(tr("extract_btn")):
         df_drv_check = read_csv_safe(uploaded_csv.getvalue())
         if colonne(df_drv_check, "Nom de l") is None or colonne(df_drv_check, "Code ACN") is None:
-            st.error("❌ La case 2️⃣ doit contenir le driver MPL : colonnes \"Nom de l'analyse\" et \"Code ACN\" introuvables. Les deux CSV sont-ils inversés ?")
+            st.error(tr("err_swap"))
             st.stop()
         if uploaded_csv_mpl:
             df_exp_check = read_csv_safe(uploaded_csv_mpl.getvalue())
             if 'LibelLong' not in df_exp_check.columns or 'Nom' not in df_exp_check.columns:
-                st.warning("⚠️ La case 3️⃣ ne contient pas les colonnes \"LibelLong\" et \"Nom\" : les libellés MPL ne seront pas traduits en codes.")
+                st.warning(tr("warn_mpl_cols"))
 
         for k in list(st.session_state.keys()):
             if k.startswith("widget_") or k == "user_mapping":
                 del st.session_state[k]
 
-        with st.spinner("Lecture et analyse intelligente en cours..."):
+        with st.spinner(tr("spin_extract")):
             csv_mpl_bytes = uploaded_csv_mpl.getvalue() if uploaded_csv_mpl else None
             df_cobas, df_mpl, erreurs, df_non_reconnues = process_files(uploaded_files, uploaded_csv.getvalue(), csv_mpl_bytes)
 
@@ -708,16 +759,16 @@ if uploaded_files and uploaded_csv:
 
 if st.session_state.etape >= 2:
     st.divider()
-    st.subheader("Étape 2 : Correspondance des analyses")
+    st.subheader(tr("step2"))
 
     df_cobas = st.session_state.df_cobas
     df_mpl = st.session_state.df_mpl
     analyses_cobas = df_cobas["_cle"].dropna().unique()
 
     if len(analyses_cobas) == 0:
-        st.error("❌ Impossible de passer à l'étape 2 : aucun rapport cobas lisible parmi les fichiers déposés dans la première case.")
+        st.error(tr("err_no_cobas"))
     else:
-        st.info("🪄 **L'outil a pré-rempli les menus déroulants !** Modifiez-les si besoin.")
+        st.info(tr("prefilled"))
 
         analyses_mpl = ["🔴 -- Aucune correspondance --", "❌ -- Ignorer cette analyse --"] + list(df_mpl["Nom de l'analyse"].dropna().unique())
 
@@ -757,16 +808,21 @@ if st.session_state.etape >= 2:
         def update_mapping(test_name):
             st.session_state.user_mapping[test_name] = st.session_state[f"widget_{test_name}"]
 
+        # ===== Avancement des tests : tous les ACN du CSV driver (case 2) sont à tester =====
+        afficher_avancement(df_driver, col_acn_driver, acn_to_mpl, code_to_rows, df_cobas, df_mpl,
+                            analyses_cobas, premiere_ligne, st.session_state.user_mapping)
+
         col_f1, col_f2 = st.columns([3, 1])
         with col_f1:
             filtre = st.radio(
-                "Filtre d'affichage des analyses :",
-                ["Toutes", "🔴 À vérifier (Aucune correspondance)", "✅ Validées", "❌ Ignorées"],
+                tr("filter_label"),
+                ["all", "todo", "ok", "ign"],
+                format_func=lambda k: tr({"all": "f_all", "todo": "f_todo", "ok": "f_ok", "ign": "f_ign"}[k]),
                 horizontal=True
             )
         with col_f2:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("🔄 Recalculer les liens automatiques", use_container_width=True):
+            if st.button(tr("recalc"), use_container_width=True):
                 if "user_mapping" in st.session_state:
                     del st.session_state["user_mapping"]
                 st.rerun()
@@ -774,16 +830,16 @@ if st.session_state.etape >= 2:
         filtered_c_tests = []
         for c_test in analyses_cobas:
             current_val = st.session_state.user_mapping[c_test]
-            if filtre == "Toutes":
+            if filtre == "all":
                 filtered_c_tests.append(c_test)
-            elif filtre == "🔴 À vérifier (Aucune correspondance)" and current_val == "🔴 -- Aucune correspondance --":
+            elif filtre == "todo" and current_val == "🔴 -- Aucune correspondance --":
                 filtered_c_tests.append(c_test)
-            elif filtre == "✅ Validées" and current_val not in ["🔴 -- Aucune correspondance --", "❌ -- Ignorer cette analyse --"]:
+            elif filtre == "ok" and current_val not in ["🔴 -- Aucune correspondance --", "❌ -- Ignorer cette analyse --"]:
                 filtered_c_tests.append(c_test)
-            elif filtre == "❌ Ignorées" and current_val == "❌ -- Ignorer cette analyse --":
+            elif filtre == "ign" and current_val == "❌ -- Ignorer cette analyse --":
                 filtered_c_tests.append(c_test)
 
-        st.write(f"Affichage de **{len(filtered_c_tests)}** analyse(s) sur {len(analyses_cobas)}.")
+        st.write(tr("showing", n=len(filtered_c_tests), total=len(analyses_cobas)))
         st.markdown("<br>", unsafe_allow_html=True)
 
         cols = st.columns(4)
@@ -802,12 +858,13 @@ if st.session_state.etape >= 2:
                     key=f"widget_{c_test}",
                     on_change=update_mapping,
                     args=(c_test,),
-                    format_func=lambda x: f"{x} ({nom_to_libellong[x]})" if x in nom_to_libellong else x
+                    format_func=lambda x: (tr("s_none") if x.startswith("🔴") else tr("s_ignore") if x.startswith("❌")
+                                           else f"{x} ({nom_to_libellong[x]})" if x in nom_to_libellong else x)
                 )
 
         st.markdown("---")
-        if st.button("✅ Générer le tableau final", type="primary", use_container_width=True):
-            with st.spinner("Fusion intelligente en cours..."):
+        if st.button(tr("gen_btn"), type="primary", use_container_width=True):
+            with st.spinner(tr("spin_merge")):
                 df_c, df_m = df_cobas.copy(), df_mpl.copy()
                 used_mpl_indices = set()
                 indices_to_drop = []
@@ -916,7 +973,7 @@ if st.session_state.etape >= 2:
 
 if st.session_state.etape == 3:
     st.divider()
-    st.success("✅ Fichier compilé avec succès !")
+    st.success(tr("done"))
 
     def highlight_cells(df):
         styles = pd.DataFrame('', index=df.index, columns=df.columns)
@@ -953,22 +1010,22 @@ if st.session_state.etape == 3:
     output.seek(0)
 
     col_dl, col_reset = st.columns(2)
-    with col_dl: st.download_button("📥 Télécharger le fichier compilé (Excel)", data=output, file_name=f"Resultats_Compiles_{VERSION}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    with col_dl: st.download_button(tr("dl_excel"), data=output, file_name=f"Resultats_Compiles_{VERSION}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     with col_reset:
-        if st.button("🔄 Recommencer une nouvelle compilation"):
+        if st.button(tr("restart")):
             st.session_state.etape = 1
             st.rerun()
 
 if st.session_state.df_cobas is not None and st.session_state.df_mpl is not None:
     st.divider()
-    with st.expander("🐛 Voir les données brutes extraites (Débogage)"):
-        st.write("**Données extraites des Fichiers (Cobas) :**")
+    with st.expander(tr("debug_title")):
+        st.write(tr("debug_cobas"))
         st.dataframe(st.session_state.df_cobas.drop(columns=["_type", "_cle"], errors="ignore"), use_container_width=True)
-        st.write("**Données extraites des Fichiers (MPL ou Images) :**")
+        st.write(tr("debug_mpl"))
         st.dataframe(st.session_state.df_mpl, use_container_width=True)
         df_nr = st.session_state.get("df_non_reconnues")
         if df_nr is not None and not df_nr.empty:
-            st.write(f"**Lignes du rapport cobas non reconnues ({len(df_nr)}) :**")
+            st.write(tr("debug_nr", n=len(df_nr)))
             st.dataframe(df_nr, use_container_width=True)
 
 # === FICHE SIDIV (optionnelle) ===
@@ -980,4 +1037,4 @@ try:
     afficher_section_sidiv(tubes_dossiers_tests(st.session_state.get("df_cobas"), _df_mpl),
                            getattr(uploaded_csv, "name", None), _df_mpl)
 except Exception as _e:
-    st.warning(f"Fiche SIDIV indisponible : {_e}")
+    st.warning(tr("sidiv_unavailable", e=_e))
