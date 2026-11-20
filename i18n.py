@@ -352,6 +352,27 @@ TR = {
     "fr": "⬇️ Télécharger la fiche SIDIV (PDF)", "en": "⬇️ Download the SIDIV form (PDF)",
     "de": "⬇️ SIDIV-Formular herunterladen (PDF)", "es": "⬇️ Descargar la ficha SIDIV (PDF)",
     "it": "⬇️ Scarica la scheda SIDIV (PDF)"},
+# ---------------------------------------------------------------- bandeau (charte Roche)
+"app_name": {
+    "fr": "Compilateur Cobas & MPL", "en": "Cobas & MPL Compiler", "de": "Cobas- & MPL-Compiler",
+    "es": "Compilador Cobas y MPL", "it": "Compilatore Cobas e MPL"},
+"step1_short": {"fr": "Fichiers", "en": "Files", "de": "Dateien", "es": "Archivos", "it": "File"},
+"step2_short": {"fr": "Correspondance", "en": "Matching", "de": "Zuordnung", "es": "Correspondencia",
+                "it": "Corrispondenza"},
+"step3_short": {"fr": "Résultat", "en": "Result", "de": "Ergebnis", "es": "Resultado", "it": "Risultato"},
+"step3": {
+    "fr": "Étape 3 : Résultat", "en": "Step 3: Result", "de": "Schritt 3: Ergebnis",
+    "es": "Paso 3: Resultado", "it": "Passo 3: Risultato"},
+"steps_aria": {"fr": "Étapes", "en": "Steps", "de": "Schritte", "es": "Pasos", "it": "Passi"},
+"dark_tip": {
+    "fr": "Mode sombre / mode clair", "en": "Dark / light mode", "de": "Dunkel-/Hellmodus",
+    "es": "Modo oscuro / claro", "it": "Modalità scura / chiara"},
+"foot": {
+    "fr": "Outil d'aide à la vérification des connexions Cobas ↔ MPL",
+    "en": "Helper tool for verifying Cobas ↔ MPL connections",
+    "de": "Hilfswerkzeug zur Prüfung von Cobas-↔-MPL-Verbindungen",
+    "es": "Herramienta de ayuda para verificar conexiones Cobas ↔ MPL",
+    "it": "Strumento di supporto alla verifica delle connessioni Cobas ↔ MPL"},
 }
 
 

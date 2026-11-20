@@ -1,0 +1,6 @@
+# Le logo Roche ne doit JAMAIS être publié dans le dépôt (public) : fichier local ou secret Streamlit uniquement.
+assets/roche_logo.*
+roche_logo.*
+.streamlit/secrets.toml
+__pycache__/
+*.pyc

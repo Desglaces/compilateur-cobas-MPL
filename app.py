@@ -6,6 +6,7 @@ import io
 import difflib
 import unicodedata
 from i18n import t as tr, LANGUES
+from charte import appliquer_charte, pied_de_page
 
 try:
     import pytesseract
@@ -327,43 +328,8 @@ def lire_rapport_cobas(textes_pages):
 
 st.set_page_config(page_title=f"Compilateur Cobas & MPL {VERSION}", layout="wide")
 
-col_vide, col_lang, col_bouton = st.columns([3, 1, 1])
-with col_lang:
-    st.selectbox(tr("lang"), list(LANGUES), format_func=LANGUES.get, key="lang")
-with col_bouton: dark_mode = st.toggle(tr("dark"))
-
-css = """
-<style>
-/* Liste des fichiers masquée pour la case 1 seulement (les noms des CSV restent visibles) */
-.st-key-depot_fichiers [data-testid="stFileUploaderFileList"] { display: none; }
-.st-key-depot_fichiers [data-testid="stFileChip"] { display: none; }
-</style>
-"""
-if dark_mode:
-    # Sélecteurs stables (data-testid / balises) : les classes "st-emotion-cache-xxxx" changent à chaque version de Streamlit.
-    css += """
-    <style>
-    .stApp, [data-testid="stApp"], [data-testid="stAppViewContainer"], [data-testid="stMain"] { background-color: #0E1117 !important; color: #FAFAFA !important; }
-    [data-testid="stHeader"], [data-testid="stToolbar"] { background-color: #0E1117 !important; }
-    [data-testid="stSidebar"] { background-color: #262730 !important; }
-    .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
-    .stApp p, .stApp li, .stApp label, .stApp span, .stApp small, .stApp caption,
-    [data-testid="stMarkdownContainer"], [data-testid="stWidgetLabel"], [data-testid="stCaptionContainer"] { color: #FAFAFA !important; }
-    [data-testid="stFileUploader"] section, [data-testid="stFileUploaderDropzone"] { background-color: #262730 !important; color: #FAFAFA !important; }
-    [data-testid="stFileUploader"] button, .stButton button, .stDownloadButton button, [data-testid="stBaseButton-secondary"] { background-color: #262730 !important; color: #FAFAFA !important; border-color: #4a4b55 !important; }
-    .stApp input, .stApp textarea, .stApp [data-baseweb="select"] > div, .stApp [data-baseweb="input"] > div { background-color: #262730 !important; color: #FAFAFA !important; }
-    [data-baseweb="popover"] ul, [data-baseweb="menu"], [role="listbox"] { background-color: #262730 !important; color: #FAFAFA !important; }
-    [data-testid="stExpander"], [data-testid="stExpander"] details { background-color: #161a23 !important; border-color: #4a4b55 !important; }
-    [data-testid="stAlert"] { background-color: #262730 !important; }
-    [data-testid="stDataFrame"], [data-testid="stTable"] { color-scheme: dark; }
-    hr { border-color: #4a4b55 !important; }
-    </style>
-    """
-# Markdown prend toute ligne indentée de 4 espaces pour du code : on retire l'indentation et les lignes vides.
-css = "\n".join(l.strip() for l in css.splitlines() if l.strip())
-st.markdown(css, unsafe_allow_html=True)
-
-st.title(tr("title", v=VERSION))
+# Bandeau Roche (logo, étapes, langue, mode sombre) + feuille de style : voir charte.py
+dark_mode = appliquer_charte(VERSION)
 
 with st.expander(tr("howto_title"), expanded=True):
     st.markdown(tr("howto"))
@@ -713,7 +679,7 @@ def afficher_avancement(df_driver, col_acn, acn_to_mpl, code_to_rows, df_cobas, 
         st.caption(tr("prog_extra", n=len(en_trop), l=", ".join(en_trop)))
     st.markdown("---")
 
-st.subheader(tr("step1"))
+st.subheader(tr("step1"), anchor="etape-1")
 uploaded_files = st.file_uploader(tr("up1"), type=["pdf", "png", "jpg", "jpeg"], accept_multiple_files=True, key="depot_fichiers")
 if uploaded_files:
     st.info(tr("n_files", n=len(uploaded_files)))
@@ -759,7 +725,7 @@ if uploaded_files and uploaded_csv:
 
 if st.session_state.etape >= 2:
     st.divider()
-    st.subheader(tr("step2"))
+    st.subheader(tr("step2"), anchor="etape-2")
 
     df_cobas = st.session_state.df_cobas
     df_mpl = st.session_state.df_mpl
@@ -973,6 +939,7 @@ if st.session_state.etape >= 2:
 
 if st.session_state.etape == 3:
     st.divider()
+    st.subheader(tr("step3"), anchor="etape-3")
     st.success(tr("done"))
 
     def highlight_cells(df):
@@ -1038,3 +1005,5 @@ try:
                            getattr(uploaded_csv, "name", None), _df_mpl)
 except Exception as _e:
     st.warning(tr("sidiv_unavailable", e=_e))
+
+pied_de_page(VERSION)

@@ -1,0 +1,21 @@
+# Thème Roche (couleur principale = bleu Roche). Le mode sombre est géré par le bandeau (voir charte.py) :
+# on ne définit donc que le thème clair, pour que Streamlit ne bascule pas seul selon le réglage du système.
+[theme]
+base = "light"
+primaryColor = "#0B41CD"
+backgroundColor = "#FAFAFC"
+secondaryBackgroundColor = "#F4F6FB"
+textColor = "#16213A"
+borderColor = "#E1E6F0"
+linkColor = "#0B41CD"
+showWidgetBorder = true
+baseRadius = "0.75rem"
+buttonRadius = "full"
+dataframeHeaderBackgroundColor = "#EEF2FB"
+font = "Roche Sans, Segoe UI, Arial, sans-serif"
+
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
