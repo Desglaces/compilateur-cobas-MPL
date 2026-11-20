@@ -111,7 +111,7 @@ a.rc-step:hover{background:var(--rc-soft)}
 .rc-step.active .rc-lbl{color:var(--rc-head)!important}
 /* langue + mode sombre dans le bandeau */
 .st-key-lang{position:fixed!important;top:12px;right:68px;width:96px!important;z-index:999995}
-.st-key-btn_dark{position:fixed!important;top:12px;right:20px;z-index:999995}
+.st-key-btn_dark{position:fixed!important;top:12px;right:20px;width:40px!important;z-index:999995}
 .st-key-btn_dark button{width:40px;height:40px;min-height:40px!important;padding:0!important;border-radius:50%!important;background:transparent!important;border:0!important;color:var(--rc-text)!important}
 .st-key-btn_dark button:hover{background:var(--rc-soft)!important;color:var(--rc-primary)!important}
 @media (max-width:1180px){.rc-lbl{display:none}.rc-step{padding-right:4px}}
